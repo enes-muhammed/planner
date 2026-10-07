@@ -1,0 +1,2 @@
+# Runtime (UI only). engine.py, database.py and the tests use the standard library only.
+PySide6>=6.6
