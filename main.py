@@ -55,7 +55,7 @@ def main() -> int:
     if args.demo:
         seed_demo(service)
 
-    from PySide6.QtWidgets import QApplication   # imported late: engine/tests need no Qt
+    from PySide6.QtWidgets import QApplication   # type: ignore # imported late: engine/tests need no Qt
     from ui import MainWindow
 
     app = QApplication(sys.argv)

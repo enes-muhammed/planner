@@ -575,6 +575,21 @@ class ServiceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.sv.add_learning_event(self.subj.id, TODAY, "x", 4, 3)
 
+    def test_weekly_timetable_expands_with_subject_lesson_ordinals(self):
+        monday = date(2026, 10, 5)
+        physics = self.sv.add_subject("Fizik")
+        self.sv.set_timetable_entry(0, 1, time(8, 20), time(9), self.subj.id)
+        self.sv.set_timetable_entry(0, 2, time(9, 10), time(9, 50), physics.id)
+        self.sv.set_timetable_entry(2, 1, time(8, 20), time(9), self.subj.id)
+        self.sv.set_timetable_entry(4, 1, time(8, 20), time(9), self.subj.id)
+        self.sv.add_learning_event(self.subj.id, monday + timedelta(days=2), "Fonksiyonlar", 2)
+
+        lessons = self.sv.list_school_lessons(monday, monday + timedelta(days=4))
+        math_lessons = [lesson for lesson in lessons if lesson.subject_id == self.subj.id]
+        self.assertEqual([lesson.subject_lesson_no for lesson in math_lessons], [1, 2, 3])
+        self.assertEqual(math_lessons[1].recorded_topic, "Fonksiyonlar")
+        self.assertEqual(math_lessons[0].lesson_date, monday)
+
     def test_review_completion_updates_memory_and_next_review(self):
         ev = self.sv.add_learning_event(self.subj.id, TODAY, "Üçgenler")
         self._availability()

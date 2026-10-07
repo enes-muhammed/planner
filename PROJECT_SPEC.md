@@ -24,7 +24,7 @@ ui.py ──► PlannerService (engine.py, bölüm E) ──► Database (databa
 * Scheduler saf fonksiyondur: `SchedulerInput → SchedulePlan`. `today`/`now` dışarıdan verilir → deterministik, test edilebilir.
 
 ## 3. Veri modeli (özet)
-Subject (ders) 1─n Topic (konu) 1─n LearningEvent (tarih + ders saati). Topic 1─1 MemoryState.
+Subject (ders) 1─n Topic (konu) 1─n LearningEvent (tarih + aynı haftaki ders sırası). Topic 1─1 MemoryState.
 Task (REVIEW | DEADLINE_TASK | RECURRING_TASK) n─n Topic (`task_topic_links`). Recurring Task 1─n TaskOccurrence.
 Task 1─n StudySession (planlanan / gerçekleşen). AvailabilityBlock (PRIMARY/RESERVE/UNAVAILABLE). Exam n─n Topic.
 SchoolTimetable (haftalık program) **ayrı** tutulur; işlenen konu yalnızca LearningEvent'te yaşar.
@@ -67,8 +67,8 @@ availability_blocks, study_sessions, exams, exam_topic_links, school_timetable, 
 * **Dinamik yeniden planlama** = aynı scheduler'ı güncel durumla yeniden çalıştırmak. Başlamış-tamamlanmamış PLANNED oturumlar `MISSED` olur, gelecekteki PLANNED oturumlar silinip yeniden üretilir; tamamlanan oturumlar gerçek süreleriyle meşgul zaman sayılır. `remaining_duration -= gerçek süre`.
 
 ## 7. UI görünümleri
-* **CalendarView:** haftalık 7 kolon × saat; müsaitlik arka planı; oturum durumları (planlı / tamamlanan / gecikmiş) ve türleri renk ile ayrılır; oturuma tıklayınca açıklama + sonuç girişi.
-* **SubjectsView:** ders listesi (ekle/düzenle/sil), seçili dersin kronolojik öğrenme geçmişi, yeni öğrenme kaydı, konu hafıza durumu.
+* **CalendarView:** haftalık 7 kolon × saat; haftalık okul programı tarihli ders blokları olarak gösterilir. Derse tıklayınca o tarih ve aynı haftaki aynı dersin sıra numarasıyla işlenen konu kaydedilir. Müsaitlik arka planı ve çalışma oturumları da gösterilir; oturuma tıklayınca açıklama + sonuç girişi.
+* **SubjectsView:** ders listesi (ekle/düzenle/sil), seçili dersin kronolojik öğrenme geçmişi ve konu hafıza durumu. Öğrenme kaydı takvimdeki okul dersi bloğundan eklenir.
 * **TasksView:** görev havuzu; filtreler all/review/deadline/recurring/overdue/completed; detay paneli; yeni görev (deadline, recurring, manuel review).
 * Ek diyaloglar: müsaitlik, okul ders programı, sınavlar.
 

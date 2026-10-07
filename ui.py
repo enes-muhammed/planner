@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QTableWidget, QTableWidgetItem, QTabWidget, QTextEdit, QTimeEdit, QVBoxLayout, QWidget)
 
 from engine import (AvailabilityBlock, AvailabilityType, PlannerService, RecallResult, RecurrenceKind,
-                    RecurringRule, SchedulePlan, SessionView, Task, TaskClass, TaskStatus)
+                    RecurringRule, SchedulePlan, SchoolLesson, SessionView, Task, TaskClass, TaskStatus)
 
 MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"]
 WEEKDAYS = ["Pazartesi", "Salı", "Çarşamba", "Perşembe", "Cuma", "Cumartesi", "Pazar"]
@@ -98,26 +98,24 @@ def buttons(dialog: QDialog, ok_text: str = "Kaydet") -> QDialogButtonBox:
 
 # ================================================================ dialogs
 class LearningEventDialog(QDialog):
-    """Date + school periods + topic (existing or new) + optional note."""
+    """Record the topic taught in a dated lesson from the weekly timetable."""
 
-    def __init__(self, service: PlannerService, subject_id: int, parent: QWidget | None = None) -> None:
+    def __init__(self, service: PlannerService, lesson: SchoolLesson, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Yeni öğrenme kaydı")
-        self.service, self.subject_id = service, subject_id
+        self.setWindowTitle("Derste işlenen konuyu kaydet")
+        self.service, self.lesson = service, lesson
         form = QFormLayout(self)
-        self.date = make_date_edit(date.today())
-        self.p_start, self.p_end = QSpinBox(), QSpinBox()
-        for sp in (self.p_start, self.p_end):
-            sp.setRange(0, 14)
-            sp.setSpecialValueText("-")
+        self.date_label = QLabel(fmt_date(lesson.lesson_date))
+        self.subject_label = QLabel(lesson.subject_name)
+        self.ordinal_label = QLabel(f"Bu haftaki {lesson.subject_lesson_no}. {lesson.subject_name} dersi")
         self.topic = QComboBox()
         self.topic.setEditable(True)
-        self.topic.addItems([t.name for t in service.list_topics(subject_id)])
+        self.topic.addItems([t.name for t in service.list_topics(lesson.subject_id)])
         self.topic.setCurrentText("")
         self.notes = QLineEdit()
-        form.addRow("Tarih", self.date)
-        form.addRow("Ders saati (başlangıç)", self.p_start)
-        form.addRow("Ders saati (bitiş)", self.p_end)
+        form.addRow("Tarih", self.date_label)
+        form.addRow("Ders", self.subject_label)
+        form.addRow("Haftalık sıra", self.ordinal_label)
         form.addRow("Konu (seç ya da yeni yaz)", self.topic)
         form.addRow("Not", self.notes)
         form.addRow(buttons(self))
@@ -125,8 +123,8 @@ class LearningEventDialog(QDialog):
     def accept(self) -> None:
         try:
             self.service.add_learning_event(
-                self.subject_id, self.date.date().toPython(), self.topic.currentText(),
-                self.p_start.value() or None, self.p_end.value() or None, self.notes.text())
+                self.lesson.subject_id, self.lesson.lesson_date, self.topic.currentText(),
+                self.lesson.subject_lesson_no, notes=self.notes.text())
         except ValueError as exc:
             show_error(self, exc)
             return
@@ -484,6 +482,7 @@ class SessionDialog(QDialog):
 class WeekCanvas(QWidget):
     """Custom-painted weekly time grid (7 day columns, hours as rows)."""
     sessionClicked = Signal(int)
+    schoolLessonClicked = Signal(object)
 
     HOUR_START, HOUR_END, HOUR_H, LEFT, HEADER = 6, 24, 46, 54, 30
 
@@ -491,14 +490,18 @@ class WeekCanvas(QWidget):
         super().__init__(parent)
         self.week_start = date.today()
         self.sessions: list[SessionView] = []
+        self.lessons: list[SchoolLesson] = []
         self.blocks: list[AvailabilityBlock] = []
         self.now = datetime.now()
         self._hits: list[tuple[QRectF, SessionView]] = []
+        self._lesson_hits: list[tuple[QRectF, SchoolLesson]] = []
         self.setMouseTracking(True)
         self.setMinimumHeight(self.HEADER + (self.HOUR_END - self.HOUR_START) * self.HOUR_H + 4)
 
-    def set_data(self, week_start: date, sessions: list[SessionView], blocks: list[AvailabilityBlock]) -> None:
-        self.week_start, self.sessions, self.blocks, self.now = week_start, sessions, blocks, datetime.now()
+    def set_data(self, week_start: date, sessions: list[SessionView], blocks: list[AvailabilityBlock],
+                 lessons: list[SchoolLesson]) -> None:
+        self.week_start, self.sessions, self.blocks, self.lessons, self.now = (
+            week_start, sessions, blocks, lessons, datetime.now())
         self.update()
 
     def _y(self, minute: float) -> float:
@@ -547,6 +550,26 @@ class WeekCanvas(QWidget):
                 y2 = self._y(b.end_time.hour * 60 + b.end_time.minute)
                 p.fillRect(QRectF(self.LEFT + i * col_w + 1, y1, col_w - 2, y2 - y1), tint[b.block_type])
 
+        self._lesson_hits = []
+        for lesson in self.lessons:
+            i = (lesson.lesson_date - self.week_start).days
+            if not 0 <= i < 7:
+                continue
+            y1 = self._y(lesson.start_time.hour * 60 + lesson.start_time.minute)
+            y2 = self._y(lesson.end_time.hour * 60 + lesson.end_time.minute)
+            rect = QRectF(self.LEFT + i * col_w + 3, y1 + 1, col_w - 6, max(14.0, y2 - y1 - 2))
+            color = QColor.fromHsv((lesson.subject_id * 47) % 360, 145, 150)
+            p.setBrush(color)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.drawRoundedRect(rect, 5, 5)
+            p.setPen(QColor("white"))
+            detail = f"Bu haftaki {lesson.subject_lesson_no}. ders"
+            if lesson.recorded_topic:
+                detail += f"\nKonu: {lesson.recorded_topic}"
+            p.drawText(rect.adjusted(4, 2, -3, -2), Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
+                       f"{lesson.subject_name}\n{detail}\n{lesson.start_time:%H:%M}–{lesson.end_time:%H:%M}")
+            self._lesson_hits.append((rect, lesson))
+
         self._hits = []
         for v in self.sessions:                               # study sessions
             s = v.session
@@ -579,20 +602,37 @@ class WeekCanvas(QWidget):
             p.drawLine(int(self.LEFT + i * col_w), int(y), int(self.LEFT + (i + 1) * col_w), int(y))
         p.end()
 
-    def _hit(self, pos: QPointF) -> SessionView | None:
+    def _hit_session(self, pos: QPointF) -> SessionView | None:
         for rect, v in reversed(self._hits):
             if rect.contains(pos):
                 return v
         return None
 
+    def _hit_lesson(self, pos: QPointF) -> SchoolLesson | None:
+        for rect, lesson in reversed(self._lesson_hits):
+            if rect.contains(pos):
+                return lesson
+        return None
+
     def mousePressEvent(self, event) -> None:  # noqa: N802
-        v = self._hit(event.position())
+        v = self._hit_session(event.position())
         if v is not None and v.session.id is not None:
             self.sessionClicked.emit(v.session.id)
+            return
+        lesson = self._hit_lesson(event.position())
+        if lesson is not None:
+            self.schoolLessonClicked.emit(lesson)
 
     def mouseMoveEvent(self, event) -> None:  # noqa: N802
-        v = self._hit(event.position())
-        self.setToolTip("" if v is None else f"{v.title}\n{v.session.explanation}")
+        pos = event.position()
+        v = self._hit_session(pos)
+        if v is not None:
+            self.setToolTip(f"{v.title}\n{v.session.explanation}")
+            return
+        lesson = self._hit_lesson(pos)
+        self.setToolTip("" if lesson is None else (
+            f"{lesson.subject_name} — haftanın {lesson.subject_lesson_no}. dersi"
+            + (f"\nKonu: {lesson.recorded_topic}" if lesson.recorded_topic else "\nKonuyu kaydetmek için tıklayın.")))
 
 
 class CalendarView(QWidget):
@@ -619,6 +659,7 @@ class CalendarView(QWidget):
         bar.addWidget(plan_b)
         root.addLayout(bar)
         legend = QLabel(
+            "<span style='color:#536D9E'>■</span> Okul dersi (tıklayıp konu kaydet) &nbsp; "
             "<span style='color:#7E57C2'>■</span> Tekrar &nbsp; <span style='color:#EF6C00'>■</span> Teslim görevi &nbsp; "
             "<span style='color:#00897B'>■</span> Tekrarlayan &nbsp; <span style='color:#78909C'>■</span> Tamamlanan &nbsp; "
             "<span style='color:#D32F2F'>■</span> Gecikmiş/kaçırılan &nbsp;|&nbsp; "
@@ -629,6 +670,7 @@ class CalendarView(QWidget):
         root.addWidget(self.summary)
         self.canvas = WeekCanvas()
         self.canvas.sessionClicked.connect(self._open_session)
+        self.canvas.schoolLessonClicked.connect(self._open_school_lesson)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.canvas)
@@ -648,7 +690,8 @@ class CalendarView(QWidget):
         end = self.week_start + timedelta(days=6)
         self.label.setText(f"{fmt_date(self.week_start)} – {fmt_date(end)} {end.year}")
         self.canvas.set_data(self.week_start, self.service.list_sessions(self.week_start, end),
-                             self.service.list_availability(self.week_start, end))
+                             self.service.list_availability(self.week_start, end),
+                             self.service.list_school_lessons(self.week_start, end))
 
     def replan(self) -> None:
         try:
@@ -683,6 +726,16 @@ class CalendarView(QWidget):
                                     ) == QMessageBox.StandardButton.Yes:
                 self.replan()
 
+    def _open_school_lesson(self, lesson: SchoolLesson) -> None:
+        if lesson.recorded_topic:
+            QMessageBox.information(
+                self, "Konu zaten kaydedilmiş",
+                f"{lesson.subject_name} dersinin konusu “{lesson.recorded_topic}” olarak kayıtlı. "
+                "Değiştirmek için Dersler sekmesindeki öğrenme geçmişinden kaydı silip yeniden girin.")
+            return
+        if LearningEventDialog(self.service, lesson, self).exec() == QDialog.DialogCode.Accepted:
+            self.replan()
+
 
 # ================================================================ subjects
 class SubjectsView(QWidget):
@@ -711,13 +764,11 @@ class SubjectsView(QWidget):
         head = QHBoxLayout()
         head.addWidget(QLabel("Öğrenme geçmişi (kronolojik)"))
         head.addStretch(1)
-        new_b, del_b = QPushButton("Yeni öğrenme kaydı"), QPushButton("Kaydı sil")
-        new_b.clicked.connect(self._new_event)
+        del_b = QPushButton("Kaydı sil")
         del_b.clicked.connect(self._delete_event)
-        head.addWidget(new_b)
         head.addWidget(del_b)
         rv.addLayout(head)
-        self.events = make_table(["Tarih", "Ders saati", "Konu", "Not"])
+        self.events = make_table(["Tarih", "Haftalık ders sırası", "Konu", "Not"])
         rv.addWidget(self.events, 3)
         rv.addWidget(QLabel("Konu hafıza durumu (bir sonraki ideal tekrar)"))
         self.memory = make_table(["Konu", "Aşama", "Stabilite (gün)", "Zorluk", "Son çalışma", "İdeal tekrar", "Tekrar sayısı"])
@@ -760,8 +811,7 @@ class SubjectsView(QWidget):
         self.events.setRowCount(len(events))
         for r, v in enumerate(events):
             e = v.event
-            period = "-" if e.period_start is None else (
-                str(e.period_start) if e.period_end in (None, e.period_start) else f"{e.period_start}-{e.period_end}")
+            period = "-" if e.period_start is None else f"{e.period_start}. ders"
             set_row(self.events, r, [fmt_date(e.event_date), period, v.topic_name, e.notes], e.id)
         mem = self.service.list_memory(sid)
         self.memory.setRowCount(len(mem))
@@ -799,14 +849,6 @@ class SubjectsView(QWidget):
                                 "silinecek. Emin misiniz?") == QMessageBox.StandardButton.Yes:
             self.service.delete_subject(sid)
             self.refresh()
-
-    def _new_event(self) -> None:
-        sid = self.current_subject_id()
-        if sid is None:
-            QMessageBox.information(self, "Bilgi", "Önce bir ders seçin.")
-            return
-        if LearningEventDialog(self.service, sid, self).exec() == QDialog.DialogCode.Accepted:
-            self._load_subject()
 
     def _delete_event(self) -> None:
         key = selected_key(self.events)

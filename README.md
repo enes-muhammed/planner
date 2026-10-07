@@ -24,9 +24,11 @@ python main.py            # veritabanı: ~/.tubitak_study_planner/planner.db
 python main.py --demo     # boş veritabanına örnek ders/konu/görev/müsaitlik ekler ve planlar
 python main.py --db my.db # farklı veritabanı dosyası
 ```
-İlk kullanım akışı: **Dersler** → ders ekle → "Yeni öğrenme kaydı" → **Planlama ▸ Çalışma zamanları** ile
-PRIMARY/RESERVE/UNAVAILABLE blokları ekle → **Takvim ▸ Planla**. Takvimde bir bloğa tıklayınca
-planlayıcının açıklaması görünür ve gerçek süre / hatırlama sonucu girilebilir.
+İlk kullanım akışı: **Dersler** sekmesinden dersleri oluşturun ve **Planlama ▸ Okul ders programı** ile
+haftalık sabit programınızı girin. **Planlama ▸ Çalışma zamanları** bölümünden PRIMARY/RESERVE/UNAVAILABLE
+blokları ekleyin. Takvim okul derslerini haftalık programa göre gösterir; bir okul dersi bloğuna tıklayıp
+tarihi ve o haftaki aynı ders sırasını görerek işlenen konuyu kaydedebilirsiniz. Planlanan çalışma oturumuna
+tıklayınca planlayıcının açıklaması görünür ve gerçek süre / hatırlama sonucu girilebilir.
 
 ## Testler
 Testler yalnızca standart kütüphane kullanır (PySide6 gerekmez):
@@ -53,7 +55,7 @@ python -m unittest -v      # ya da: pytest
   (bilimsel olarak doğrulanmış/optimal olduğu iddia edilmez).
 
 ## Mevcut özellikler
-* Ders / konu / öğrenme kaydı (ders ≠ konu ≠ öğrenme olayı), kronolojik geçmiş, okul ders programı.
+* Ders / konu / öğrenme kaydı (ders ≠ konu ≠ öğrenme olayı), kronolojik geçmiş, takvimde görünen haftalık okul programı.
 * Objective + subjective recall → birleşik skor → stability/difficulty güncellemesi → ideal tekrar tarihi, relearning.
 * Otomatik ve manuel (çok konulu) review; deadline task; tekrarlayan task (günlük / seçili günler / haftada N gün).
 * PRIMARY / RESERVE / UNAVAILABLE, günlük buffer, günlük review sınırı, sınav yaklaşımı, bölme (splitting).

@@ -455,6 +455,18 @@ class SchoolTimetableEntry:
 
 
 @dataclass(frozen=True)
+class SchoolLesson:
+    lesson_date: date
+    period_no: int
+    subject_lesson_no: int
+    start_time: time
+    end_time: time
+    subject_id: int
+    subject_name: str
+    recorded_topic: str | None = None
+
+
+@dataclass(frozen=True)
 class RecallResult:
     objective_score: float     # 0..1 share of correctly recalled content
     subjective_rating: int     # 1..10 self-assessment
@@ -1622,6 +1634,43 @@ class PlannerService:
     def list_timetable(self) -> list[SchoolTimetableEntry]:
         rows = self.db.select("school_timetable", {"student_id": self.student_id}, ["weekday", "period_no"])
         return [row_to_model(SchoolTimetableEntry, r) for r in rows]
+
+    def list_school_lessons(self, start: date, end: date) -> list[SchoolLesson]:
+        """Expand the fixed weekly timetable into dated lessons for a calendar range."""
+        entries = self.list_timetable()
+        subjects = {s.id: s.name for s in self.list_subjects()}
+        subject_order: dict[tuple[int, int], int] = {}
+        subject_counts: dict[int, int] = {}
+        for entry in entries:
+            subject_counts[entry.subject_id] = subject_counts.get(entry.subject_id, 0) + 1
+            subject_order[(entry.weekday, entry.period_no)] = subject_counts[entry.subject_id]
+
+        recorded: dict[tuple[int, date, int], str] = {}
+        for subject in self.list_subjects():
+            for event_view in self.list_learning_events(subject.id):
+                event = event_view.event
+                if event.period_start is not None:
+                    recorded[(subject.id, event.event_date, event.period_start)] = event_view.topic_name
+
+        by_weekday: dict[int, list[SchoolTimetableEntry]] = {}
+        for entry in entries:
+            by_weekday.setdefault(entry.weekday, []).append(entry)
+
+        lessons: list[SchoolLesson] = []
+        for day in _days(start, end):
+            for entry in by_weekday.get(day.weekday(), []):
+                ordinal = subject_order[(entry.weekday, entry.period_no)]
+                lessons.append(SchoolLesson(
+                    lesson_date=day,
+                    period_no=entry.period_no,
+                    subject_lesson_no=ordinal,
+                    start_time=entry.start_time,
+                    end_time=entry.end_time,
+                    subject_id=entry.subject_id,
+                    subject_name=subjects[entry.subject_id],
+                    recorded_topic=recorded.get((entry.subject_id, day, ordinal)),
+                ))
+        return lessons
 
     def set_timetable_entry(self, weekday: int, period_no: int, start: time, end: time, subject_id: int) -> None:
         entry = SchoolTimetableEntry(weekday=weekday, period_no=period_no, start_time=start,
