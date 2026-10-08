@@ -22,6 +22,7 @@ from engine import (
     AvailabilityBlock, AvailabilityType, PlannerService, RecallResult, RecurrenceKind,
     RecurringRule, SchedulePlan, SchoolLesson, SessionView, Task, TaskClass, TaskStatus
 )
+from ui2 import CALENDAR_BOTTOM_PADDING
 
 
 # ================================================================== UI STYLE
@@ -42,10 +43,12 @@ TAB_HORIZONTAL_PADDING = 20
 TAB_VERTICAL_PADDING = 9
 TAB_RADIUS = 8
 
-BUTTON_RADIUS = 7
+BUTTON_RADIUS = 5
 INPUT_RADIUS = 6
 GROUP_RADIUS = 8
 TABLE_RADIUS = 7
+
+CALENDAR_BOTTOM_PADDING = 5
 
 
 UI_STYLESHEET = f"""
@@ -1211,7 +1214,7 @@ class WeekGridCanvas(QWidget):
 
     def _initialize_interaction(self) -> None:
         self.setMouseTracking(True)
-        self.setFixedHeight((END_HOUR - START_HOUR) * HOUR_HEIGHT)
+        self.setFixedHeight((END_HOUR - START_HOUR) * HOUR_HEIGHT + CALENDAR_BOTTOM_PADDING)
 
     def set_data(
         self,
@@ -1366,17 +1369,17 @@ class WeekGridCanvas(QWidget):
         pal = self.palette()
         p.fillRect(self.rect(), pal.base())
 
+        grid_color = pal.mid().color()
+        grid_color.setAlpha(90)
+        quarter_color = pal.midlight().color()
+        quarter_color.setAlpha(75)
         return (
             p,
             self._col_w(),
             date.today(),
             pal.text().color(),
-            QPen(QColor(128, 128, 128, 45), 1),
-            QPen(
-                QColor(128, 128, 128, 20),
-                1,
-                Qt.PenStyle.DashLine
-            )
+            QPen(grid_color, 1),
+            QPen(quarter_color, 1)
         )
 
     def _draw_today_column(
@@ -1403,34 +1406,35 @@ class WeekGridCanvas(QWidget):
         time_font = QFont(self.font())
         time_font.setPointSize(8)
         p.setFont(time_font)
+        time_color = self.palette().placeholderText().color()
 
         for h in range(START_HOUR, END_HOUR + 1):
             y = (h - START_HOUR) * HOUR_HEIGHT
 
             p.setPen(grid_pen)
-            p.drawLine(
-                int(GUTTER_WIDTH),
-                int(y),
-                self.width(),
-                int(y)
-            )
+            p.drawLine(int(GUTTER_WIDTH), int(y), self.width(), int(y))
 
             if h < END_HOUR:
-                half_y = y + HOUR_HEIGHT / 2.0
-                p.setPen(sub_grid_pen)
-                p.drawLine(
-                    int(GUTTER_WIDTH),
-                    int(half_y),
-                    self.width(),
-                    int(half_y)
-                )
+                for quarter in (15, 30, 45):
+                    quarter_y = y + HOUR_HEIGHT * quarter / 60.0
+                    p.setPen(sub_grid_pen if quarter != 30 else grid_pen)
+                    p.drawLine(
+                        int(GUTTER_WIDTH),
+                        int(quarter_y),
+                        self.width(),
+                        int(quarter_y)
+                    )
 
             if h > START_HOUR:
-                p.setPen(QColor(128, 128, 128))
+                p.setPen(time_color)
+                hour = h % 12
+                if hour == 0:
+                    hour = 12
+                period = "AM" if h < 12 or h == 24 else "PM"
                 p.drawText(
-                    QRectF(0, y - 8, GUTTER_WIDTH - 8, 16),
+                    QRectF(0, y + 3, GUTTER_WIDTH - 9, 17),
                     Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                    f"{h:02d}:00"
+                    f"{hour} {period}"
                 )
 
     def _draw_day_columns(
@@ -1513,7 +1517,7 @@ class WeekGridCanvas(QWidget):
             170
         )
         bg_color = QColor(base_color)
-        bg_color.setAlpha(42)
+        bg_color.setAlpha(72)
 
         self._draw_card_background(p, rect, bg_color, None)
         p.setBrush(base_color)
@@ -1529,7 +1533,7 @@ class WeekGridCanvas(QWidget):
         title_font.setBold(True)
         p.setFont(title_font)
 
-        text_pad = rect.adjusted(7, 2, -3, -2)
+        text_pad = rect.adjusted(10, 2, -3, -2)
         p.drawText(
             text_pad,
             Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
@@ -1548,7 +1552,7 @@ class WeekGridCanvas(QWidget):
         sub_font = QFont(self.font())
         sub_font.setPointSize(7)
         p.setFont(sub_font)
-        p.setPen(QColor(120, 120, 120))
+        p.setPen(self.palette().placeholderText().color())
         p.drawText(
             QRectF(
                 text_pad.x(),
@@ -1594,7 +1598,7 @@ class WeekGridCanvas(QWidget):
         title_font.setBold(True)
         p.setFont(title_font)
 
-        text_pad = rect.adjusted(7, 2, -3, -2)
+        text_pad = rect.adjusted(10, 2, -3, -2)
         mark = (
             "✓ " if state == "completed"
             else "! " if state == "overdue"
@@ -1618,12 +1622,12 @@ class WeekGridCanvas(QWidget):
 
         if state == "completed":
             main_color = QColor("#607D8B")
-            alpha = 35
+            alpha = 60
         elif state == "overdue":
             main_color = QColor("#D32F2F")
-            alpha = 40
+            alpha = 70
         else:
-            alpha = 40
+            alpha = 70
 
         bg_color = QColor(main_color)
         bg_color.setAlpha(alpha)
@@ -1649,7 +1653,7 @@ class WeekGridCanvas(QWidget):
         sub_font = QFont(self.font())
         sub_font.setPointSize(7)
         p.setFont(sub_font)
-        p.setPen(QColor(120, 120, 120))
+        p.setPen(self.palette().placeholderText().color())
         p.drawText(
             QRectF(
                 text_pad.x(),
@@ -1731,7 +1735,6 @@ class WeekGridCanvas(QWidget):
                 tip += "<i>Konuyu kaydetmek için tıklayın</i>"
             self.setToolTip(tip)
 
-
 class CalendarView(QWidget):
     """Full-featured modern calendar widget matching the calendar_view_example repository."""
 
@@ -1764,7 +1767,7 @@ class CalendarView(QWidget):
             TAB_CONTENT_MARGIN_H,
             TAB_CONTENT_MARGIN_BOTTOM
         )
-        root.setSpacing(6)
+        root.setSpacing(5)
         return root
 
     def _setup_toolbar(self, root: QVBoxLayout) -> None:
@@ -1778,7 +1781,7 @@ class CalendarView(QWidget):
         self.title_label.setStyleSheet("font-weight: 600; font-size: 15px;")
 
         plan_btn = QPushButton("Planla / Yeniden planla")
-        plan_btn.setStyleSheet("font-weight: 600;")
+        plan_btn.setProperty("primary", True)
 
         today_btn.clicked.connect(self._go_today)
         prev_btn.clicked.connect(lambda: self._shift(-7))
@@ -1806,16 +1809,19 @@ class CalendarView(QWidget):
             "<span style='color:#FFC107'>▒</span> RESERVE &nbsp;&nbsp;"
             "<span style='color:#757575'>▒</span> UNAVAILABLE"
         )
-        legend.setStyleSheet("font-size: 11px; color: palette(mid);")
+        legend.setTextFormat(Qt.TextFormat.RichText)
+        legend.setProperty("secondary", True)
         root.addWidget(legend)
 
         self.summary = QLabel()
-        self.summary.setStyleSheet("font-size: 11px;")
+        self.summary.setProperty("secondary", True)
         root.addWidget(self.summary)
 
     def _setup_calendar(self, root: QVBoxLayout) -> None:
         cal_container = QFrame()
-        cal_container.setFrameShape(QFrame.Shape.StyledPanel)
+        cal_container.setObjectName("calendarContainer")
+        cal_container.setProperty("card", True)
+        cal_container.setFrameShape(QFrame.Shape.NoFrame)
 
         cal_layout = QVBoxLayout(cal_container)
         cal_layout.setContentsMargins(0, 0, 0, 0)
