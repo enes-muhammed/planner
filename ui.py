@@ -22,7 +22,6 @@ from engine import (
     AvailabilityBlock, AvailabilityType, PlannerService, RecallResult, RecurrenceKind,
     RecurringRule, SchedulePlan, SchoolLesson, SessionView, Task, TaskClass, TaskStatus
 )
-from ui2 import CALENDAR_BOTTOM_PADDING
 
 
 # ================================================================== UI STYLE
