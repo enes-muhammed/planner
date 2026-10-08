@@ -1,0 +1,11 @@
++ light mode çok acilen. ve dark mode da bazı yazılar (örneğin [] Reserved [] Primary vs vs o satır var ya, o yazılar dark mode da bile koyu renkte. onu düzelteim)
++ buton stilleri her yerde çok kötü, daha modern olsun güzel olsun.
++ 24.00 sonrası biraz daha boşluk çünkü 24.00 yazısı yarım kalıyor
++ modernize tab view (Calendar-Task-Ders vs üçü olan yukarıdaki) daha detaylı olarak şöyle olsun. tablerin olduğu barı renkli yap transparent olsun. light mode da beyaz olsun mesela, tab isimeri de siyah, ama seçili olan tabın butonunun arka planı siyah yazısı beyaz olsun. ve dark mode da tam tersi. tab butonarının boyunu biraz azalt.
++ per 8 ekim vs o yazıların olduğu bar, aşağı yukarı kaydırırken sürekli soldaki saat yazılarını yarıda kesme problemi
++ event bloklarının saydamlığı problemi.
++ event bloklarında yazılar biraz daha sağa gelebilir 3 piksel falan
++ dersler ve görevler sekmelerinde köklü ui değişimleri yapılacak
++ 02.00 yerine 2 AM, 14 yerine 2 PM vs yazılabilir.
++ date bar (per 8 ekim vs yazan o bar) biraz daha açık renkli veya hatta calendarview ile aynı renkte olabilir. daha bir temiz görüntü olur. belki [diğer calendar örneğimdekinin](https://github.com/enes-muhammed/calendar_view_example) aynısı yapılabilir o hem daha ince bir satır hem çok güzel duruyor kırmızı renk vs.
++ kılavuz çizgileri 15 dk aralıkla olabilir.
