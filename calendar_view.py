@@ -17,15 +17,16 @@ from engine import (
     SchedulePlan, SchoolLesson, SessionView
 )
 from ui_common import (
-    CALENDAR_BOTTOM_PADDING, CLASS_COLOR, CLASS_LABEL,
-    TAB_CONTENT_MARGIN_BOTTOM, TAB_CONTENT_MARGIN_H,
-    TAB_CONTENT_MARGIN_TOP, WEEKDAYS, fmt_date, show_error
+    CLASS_COLOR, CLASS_LABEL, TAB_CONTENT_MARGIN_BOTTOM,
+    TAB_CONTENT_MARGIN_H, TAB_CONTENT_MARGIN_TOP, WEEKDAYS,
+    fmt_date, show_error
 )
 
-GUTTER_WIDTH = 58
+GUTTER_WIDTH = 64
 HOUR_HEIGHT = 60
 START_HOUR = 0
 END_HOUR = 24
+CALENDAR_BOTTOM_PADDING = 28  # 24.00 etiketinin yarım kalmaması için alt boşluk
 
 
 @dataclass
@@ -40,18 +41,23 @@ class _CalendarItem:
 
 
 class DayHeaderWidget(QWidget):
-    """Haftanın günlerini ve tarih rozetlerini çizen üst başlık."""
+    """Haftanın gün isimlerini ve tarih rozetlerini çizen üst başlık."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.week_start = date.today()
         self.setFixedHeight(50)
+        self.is_dark = True
 
     def set_week_start(self, week_start: date) -> None:
         self.week_start = week_start
         self.update()
 
-    def paintEvent(self, event) -> None:
+    def set_theme_mode(self, is_dark: bool) -> None:
+        self.is_dark = is_dark
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802
         p = self._create_painter()
         pal = self.palette()
         col_w = (self.width() - GUTTER_WIDTH) / 7.0
@@ -69,7 +75,8 @@ class DayHeaderWidget(QWidget):
 
     def _draw_background(self, p: QPainter, pal, width: int) -> None:
         p.fillRect(self.rect(), pal.window())
-        p.setPen(QPen(QColor(128, 128, 128, 50), 1))
+        border_col = QColor(255, 255, 255, 30) if self.is_dark else QColor(0, 0, 0, 20)
+        p.setPen(QPen(border_col, 1))
         p.drawLine(0, self.height() - 1, width, self.height() - 1)
 
     def _draw_days(
@@ -97,9 +104,9 @@ class DayHeaderWidget(QWidget):
     ) -> None:
         name_font = QFont(self.font())
         name_font.setPointSize(8)
-        name_font.setWeight(QFont.Weight.Medium)
+        name_font.setWeight(QFont.Weight.DemiBold)
         p.setFont(name_font)
-        p.setPen(QColor("#1A73E8") if is_today else QColor(128, 128, 128))
+        p.setPen(QColor("#38BDF8") if is_today else QColor(148, 163, 184))
         p.drawText(
             QRectF(x, 4, col_w, 16),
             Qt.AlignmentFlag.AlignCenter,
@@ -140,11 +147,11 @@ class DayHeaderWidget(QWidget):
         badge_x = x + (col_w - badge_size) / 2.0
         badge_y = 22.0
 
-        p.setBrush(QColor("#1A73E8"))
+        p.setBrush(QColor("#38BDF8" if self.is_dark else "#0F172A"))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawEllipse(QRectF(badge_x, badge_y, badge_size, badge_size))
 
-        p.setPen(QColor("white"))
+        p.setPen(QColor("#0F172A" if self.is_dark else "#FFFFFF"))
         p.drawText(
             QRectF(badge_x, badge_y, badge_size, badge_size),
             Qt.AlignmentFlag.AlignCenter,
@@ -152,18 +159,20 @@ class DayHeaderWidget(QWidget):
         )
 
     def _draw_day_separator(self, p: QPainter, x: float) -> None:
-        p.setPen(QPen(QColor(128, 128, 128, 35), 1))
+        sep_col = QColor(255, 255, 255, 20) if self.is_dark else QColor(0, 0, 0, 15)
+        p.setPen(QPen(sep_col, 1))
         p.drawLine(int(x), 0, int(x), self.height())
 
 
 class WeekGridCanvas(QWidget):
-    """Zaman ızgarasını, dersleri ve çalışma bloklarını çizen kanvas."""
+    """Saat ızgarasını, dersleri ve blokları çizen modern kanvas."""
 
     sessionClicked = Signal(int)
     schoolLessonClicked = Signal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.is_dark = True
         self._initialize_data()
         self._initialize_interaction()
 
@@ -177,7 +186,12 @@ class WeekGridCanvas(QWidget):
 
     def _initialize_interaction(self) -> None:
         self.setMouseTracking(True)
+        # 24:00 yazısının ve son saatlerin kesilmemesi için padding eklendi
         self.setFixedHeight((END_HOUR - START_HOUR) * HOUR_HEIGHT + CALENDAR_BOTTOM_PADDING)
+
+    def set_theme_mode(self, is_dark: bool) -> None:
+        self.is_dark = is_dark
+        self.update()
 
     def set_data(
         self,
@@ -307,8 +321,10 @@ class WeekGridCanvas(QWidget):
         for item in cluster:
             item.total_cols = total_c
 
-    def paintEvent(self, event) -> None:
-        p, col_w, today, text_color, grid_pen, sub_grid_pen = self._prepare_paint()
+    def paintEvent(self, event) -> None:  # noqa: N802
+        p, col_w, today, text_color, grid_pen, sub_grid_pen = (
+            self._prepare_paint()
+        )
 
         self._draw_today_column(p, col_w, today)
         self._draw_time_grid(p, grid_pen, sub_grid_pen)
@@ -328,17 +344,20 @@ class WeekGridCanvas(QWidget):
         pal = self.palette()
         p.fillRect(self.rect(), pal.base())
 
-        grid_color = pal.mid().color()
-        grid_color.setAlpha(90)
-        quarter_color = pal.midlight().color()
-        quarter_color.setAlpha(75)
+        if self.is_dark:
+            grid_col = QColor(255, 255, 255, 30)
+            sub_grid_col = QColor(255, 255, 255, 14)
+        else:
+            grid_col = QColor(0, 0, 0, 25)
+            sub_grid_col = QColor(0, 0, 0, 12)
+
         return (
             p,
             self._col_w(),
             date.today(),
             pal.text().color(),
-            QPen(grid_color, 1),
-            QPen(quarter_color, 1)
+            QPen(grid_col, 1),
+            QPen(sub_grid_col, 1, Qt.PenStyle.DashLine)
         )
 
     def _draw_today_column(
@@ -351,9 +370,10 @@ class WeekGridCanvas(QWidget):
             d = self.week_start + timedelta(days=i)
             if d == today:
                 col_x = GUTTER_WIDTH + i * col_w
+                tint = QColor(56, 189, 248, 14) if self.is_dark else QColor(37, 99, 235, 12)
                 p.fillRect(
-                    QRectF(col_x, 0, col_w, self.height()),
-                    QColor(26, 115, 232, 10)
+                    QRectF(col_x, 0, col_w, (END_HOUR - START_HOUR) * HOUR_HEIGHT),
+                    tint
                 )
 
     def _draw_time_grid(
@@ -365,7 +385,7 @@ class WeekGridCanvas(QWidget):
         time_font = QFont(self.font())
         time_font.setPointSize(8)
         p.setFont(time_font)
-        time_color = self.palette().placeholderText().color()
+        label_col = QColor(148, 163, 184) if self.is_dark else QColor(100, 116, 139)
 
         for h in range(START_HOUR, END_HOUR + 1):
             y = (h - START_HOUR) * HOUR_HEIGHT
@@ -373,26 +393,29 @@ class WeekGridCanvas(QWidget):
             p.setPen(grid_pen)
             p.drawLine(int(GUTTER_WIDTH), int(y), self.width(), int(y))
 
+            # 15 dakikalık kılavuz çizgileri
             if h < END_HOUR:
-                for quarter in (15, 30, 45):
-                    quarter_y = y + HOUR_HEIGHT * quarter / 60.0
-                    p.setPen(sub_grid_pen if quarter != 30 else grid_pen)
+                for minute in (15, 30, 45):
+                    sub_y = y + HOUR_HEIGHT * (minute / 60.0)
+                    p.setPen(sub_grid_pen)
                     p.drawLine(
                         int(GUTTER_WIDTH),
-                        int(quarter_y),
+                        int(sub_y),
                         self.width(),
-                        int(quarter_y)
+                        int(sub_y)
                     )
 
+            # 12 saatlik AM / PM gösterimi - çizginin hemen altına (y + 2) hizalandı
+            # Böylece üst başlık kaydırma anında saat yazılarını asla ikiye kesmez!
             if h > START_HOUR:
-                p.setPen(time_color)
+                p.setPen(label_col)
                 hour = h % 12
                 if hour == 0:
                     hour = 12
                 period = "AM" if h < 12 or h == 24 else "PM"
                 p.drawText(
-                    QRectF(0, y + 3, GUTTER_WIDTH - 9, 17),
-                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                    QRectF(0, y + 2, GUTTER_WIDTH - 8, 16),
+                    Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop,
                     f"{hour} {period}"
                 )
 
@@ -402,10 +425,11 @@ class WeekGridCanvas(QWidget):
         col_w: float,
         grid_pen: QPen
     ) -> None:
+        h_max = (END_HOUR - START_HOUR) * HOUR_HEIGHT
         for i in range(8):
             x = GUTTER_WIDTH + i * col_w
             p.setPen(grid_pen)
-            p.drawLine(int(x), 0, int(x), self.height())
+            p.drawLine(int(x), 0, int(x), int(h_max))
 
     def _draw_availability(
         self,
@@ -413,9 +437,9 @@ class WeekGridCanvas(QWidget):
         col_w: float
     ) -> None:
         tint_map = {
-            AvailabilityType.PRIMARY: QColor(76, 175, 80, 35),
-            AvailabilityType.RESERVE: QColor(255, 193, 7, 45),
-            AvailabilityType.UNAVAILABLE: QColor(120, 120, 120, 60)
+            AvailabilityType.PRIMARY: QColor(34, 197, 94, 35),
+            AvailabilityType.RESERVE: QColor(245, 158, 11, 40),
+            AvailabilityType.UNAVAILABLE: QColor(148, 163, 184, 45)
         }
 
         for b in self.blocks:
@@ -470,29 +494,23 @@ class WeekGridCanvas(QWidget):
         lesson: SchoolLesson,
         text_color
     ) -> None:
-        base_color = QColor.fromHsv(
-            (lesson.subject_id * 53) % 360,
-            160,
-            170
-        )
+        # Saydamlık problemi düzeltildi: arkadaki ızgara yazıyı boğmasın diye tok renk kullanılıyor
+        base_color = QColor.fromHsv((lesson.subject_id * 53) % 360, 165, 175)
         bg_color = QColor(base_color)
-        bg_color.setAlpha(72)
+        bg_color.setAlpha(210 if self.is_dark else 225)
 
         self._draw_card_background(p, rect, bg_color, None)
         p.setBrush(base_color)
-        p.drawRoundedRect(
-            QRectF(rect.x(), rect.y(), 4, rect.height()),
-            2,
-            2
-        )
+        p.drawRoundedRect(QRectF(rect.x(), rect.y(), 4, rect.height()), 2, 2)
 
-        p.setPen(text_color)
+        # Kart üzeri metin rengi
+        p.setPen(QColor("#FFFFFF") if self.is_dark else QColor("#0F172A"))
         title_font = QFont(self.font())
         title_font.setPointSize(8)
         title_font.setBold(True)
         p.setFont(title_font)
 
-        text_pad = rect.adjusted(10, 2, -3, -2)
+        text_pad = rect.adjusted(7, 2, -3, -2)
         p.drawText(
             text_pad,
             Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
@@ -511,7 +529,7 @@ class WeekGridCanvas(QWidget):
         sub_font = QFont(self.font())
         sub_font.setPointSize(7)
         p.setFont(sub_font)
-        p.setPen(self.palette().placeholderText().color())
+        p.setPen(QColor(220, 225, 235) if self.is_dark else QColor(71, 85, 105))
         p.drawText(
             QRectF(
                 text_pad.x(),
@@ -538,29 +556,21 @@ class WeekGridCanvas(QWidget):
             p,
             rect,
             bg_color,
-            QPen(QColor("#D32F2F"), 1.5) if state == "overdue" else None
+            QPen(QColor("#EF4444"), 1.5) if state == "overdue" else None
         )
 
         p.setBrush(main_color)
         p.setPen(Qt.PenStyle.NoPen)
-        p.drawRoundedRect(
-            QRectF(rect.x(), rect.y(), 4, rect.height()),
-            2,
-            2
-        )
+        p.drawRoundedRect(QRectF(rect.x(), rect.y(), 4, rect.height()), 2, 2)
 
-        p.setPen(text_color)
+        p.setPen(QColor("#FFFFFF") if self.is_dark else QColor("#0F172A"))
         title_font = QFont(self.font())
         title_font.setPointSize(8)
         title_font.setBold(True)
         p.setFont(title_font)
 
-        text_pad = rect.adjusted(10, 2, -3, -2)
-        mark = (
-            "✓ " if state == "completed"
-            else "! " if state == "overdue"
-            else ""
-        )
+        text_pad = rect.adjusted(7, 2, -3, -2)
+        mark = "✓ " if state == "completed" else "! " if state == "overdue" else ""
         p.drawText(
             text_pad,
             Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
@@ -578,13 +588,13 @@ class WeekGridCanvas(QWidget):
         main_color = QColor(CLASS_COLOR[sv.task_class])
 
         if state == "completed":
-            main_color = QColor("#607D8B")
-            alpha = 60
+            main_color = QColor("#64748B")
+            alpha = 185 if self.is_dark else 200
         elif state == "overdue":
-            main_color = QColor("#D32F2F")
-            alpha = 70
+            main_color = QColor("#EF4444")
+            alpha = 210 if self.is_dark else 225
         else:
-            alpha = 70
+            alpha = 205 if self.is_dark else 220
 
         bg_color = QColor(main_color)
         bg_color.setAlpha(alpha)
@@ -610,7 +620,7 @@ class WeekGridCanvas(QWidget):
         sub_font = QFont(self.font())
         sub_font.setPointSize(7)
         p.setFont(sub_font)
-        p.setPen(self.palette().placeholderText().color())
+        p.setPen(QColor(220, 225, 235) if self.is_dark else QColor(71, 85, 105))
         p.drawText(
             QRectF(
                 text_pad.x(),
@@ -639,15 +649,10 @@ class WeekGridCanvas(QWidget):
         now_y = self._y_for_minute(now_min)
         line_x = GUTTER_WIDTH + today_idx * col_w
 
-        p.setPen(QPen(QColor("#EA4335"), 2))
-        p.drawLine(
-            int(line_x),
-            int(now_y),
-            int(line_x + col_w),
-            int(now_y)
-        )
+        p.setPen(QPen(QColor("#EF4444"), 2))
+        p.drawLine(int(line_x), int(now_y), int(line_x + col_w), int(now_y))
 
-        p.setBrush(QColor("#EA4335"))
+        p.setBrush(QColor("#EF4444"))
         p.setPen(Qt.PenStyle.NoPen)
         p.drawEllipse(QPointF(line_x, now_y), 4, 4)
 
@@ -657,7 +662,7 @@ class WeekGridCanvas(QWidget):
                 return it
         return None
 
-    def mousePressEvent(self, event) -> None:
+    def mousePressEvent(self, event) -> None:  # noqa: N802
         it = self._hit_test(event.position())
         if it is None:
             return
@@ -667,7 +672,7 @@ class WeekGridCanvas(QWidget):
         elif it.lesson is not None:
             self.schoolLessonClicked.emit(it.lesson)
 
-    def mouseMoveEvent(self, event) -> None:
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802
         it = self._hit_test(event.position())
         if it is None:
             self.setToolTip("")
@@ -694,7 +699,7 @@ class WeekGridCanvas(QWidget):
 
 
 class CalendarView(QWidget):
-    """Ana takvim görünüm sekmesi."""
+    """Gelişmiş takvim sekmesi."""
 
     plan_changed = Signal()
 
@@ -705,6 +710,7 @@ class CalendarView(QWidget):
     ) -> None:
         super().__init__(parent)
         self.service = service
+        self.is_dark = True
         self._initialize_week()
         root = self._create_root_layout()
         self._setup_toolbar(root)
@@ -712,6 +718,12 @@ class CalendarView(QWidget):
         self._setup_calendar(root)
         self.refresh()
         self._scroll_to_hour(8)
+
+    def set_theme_mode(self, is_dark: bool) -> None:
+        self.is_dark = is_dark
+        self.header.set_theme_mode(is_dark)
+        self.grid.set_theme_mode(is_dark)
+        self.refresh()
 
     def _initialize_week(self) -> None:
         today = date.today()
@@ -725,7 +737,7 @@ class CalendarView(QWidget):
             TAB_CONTENT_MARGIN_H,
             TAB_CONTENT_MARGIN_BOTTOM
         )
-        root.setSpacing(5)
+        root.setSpacing(6)
         return root
 
     def _setup_toolbar(self, root: QVBoxLayout) -> None:
@@ -756,29 +768,28 @@ class CalendarView(QWidget):
         root.addLayout(top_bar)
 
     def _setup_legend(self, root: QVBoxLayout) -> None:
-        legend = QLabel(
-            "<span style='color:#5C6BC0'>■</span> Okul dersi &nbsp;&nbsp;"
-            "<span style='color:#7E57C2'>■</span> Tekrar &nbsp;&nbsp;"
-            "<span style='color:#EF6C00'>■</span> Teslim görevi &nbsp;&nbsp;"
-            "<span style='color:#00897B'>■</span> Tekrarlayan &nbsp;&nbsp;"
-            "<span style='color:#607D8B'>■</span> Tamamlanan &nbsp;&nbsp;"
-            "<span style='color:#D32F2F'>■</span> Gecikmiş &nbsp;|&nbsp; "
-            "<span style='color:#4CAF50'>▒</span> PRIMARY &nbsp;&nbsp;"
-            "<span style='color:#FFC107'>▒</span> RESERVE &nbsp;&nbsp;"
-            "<span style='color:#757575'>▒</span> UNAVAILABLE"
+        # Dark mode'da koyu kalmayan, her iki modda da net okunan renkler
+        self.legend = QLabel(
+            "<span style='color:#5C6BC0; font-weight:bold;'>■</span> Okul dersi &nbsp;&nbsp;"
+            "<span style='color:#7E57C2; font-weight:bold;'>■</span> Tekrar &nbsp;&nbsp;"
+            "<span style='color:#EF6C00; font-weight:bold;'>■</span> Teslim görevi &nbsp;&nbsp;"
+            "<span style='color:#00897B; font-weight:bold;'>■</span> Tekrarlayan &nbsp;&nbsp;"
+            "<span style='color:#64748B; font-weight:bold;'>■</span> Tamamlanan &nbsp;&nbsp;"
+            "<span style='color:#EF4444; font-weight:bold;'>■</span> Gecikmiş &nbsp;|&nbsp; "
+            "<span style='color:#22C55E; font-weight:bold;'>▒</span> PRIMARY &nbsp;&nbsp;"
+            "<span style='color:#F59E0B; font-weight:bold;'>▒</span> RESERVE &nbsp;&nbsp;"
+            "<span style='color:#94A3B8; font-weight:bold;'>▒</span> UNAVAILABLE"
         )
-        legend.setTextFormat(Qt.TextFormat.RichText)
-        legend.setProperty("secondary", True)
-        root.addWidget(legend)
+        self.legend.setObjectName("calendarLegend")
+        self.legend.setTextFormat(Qt.TextFormat.RichText)
+        root.addWidget(self.legend)
 
         self.summary = QLabel()
-        self.summary.setProperty("secondary", True)
+        self.summary.setObjectName("calendarSummary")
         root.addWidget(self.summary)
 
     def _setup_calendar(self, root: QVBoxLayout) -> None:
         cal_container = QFrame()
-        cal_container.setObjectName("calendarContainer")
-        cal_container.setProperty("card", True)
         cal_container.setFrameShape(QFrame.Shape.NoFrame)
 
         cal_layout = QVBoxLayout(cal_container)
@@ -791,9 +802,7 @@ class CalendarView(QWidget):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setVerticalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.grid = WeekGridCanvas()
         self.grid.sessionClicked.connect(self._open_session)
@@ -876,9 +885,7 @@ class CalendarView(QWidget):
         ]
 
         if len(plan.unscheduled) > 12:
-            lines.append(
-                f"… ve {len(plan.unscheduled) - 12} kalem daha"
-            )
+            lines.append(f"… ve {len(plan.unscheduled) - 12} kalem daha")
 
         QMessageBox.information(
             self,
