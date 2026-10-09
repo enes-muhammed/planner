@@ -1,108 +1,132 @@
-"""ui.py - PySide6 ana penceresi ve tema yöneticisi."""
+"""ui.py - 3 Katmanlı Modern Arayüz Düzeni."""
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QMainWindow, QPushButton, QTabWidget,
-    QVBoxLayout, QWidget
+    QApplication, QDialog, QHBoxLayout, QInputDialog,
+    QMainWindow, QStackedWidget, QWidget
 )
 
 from calendar_view import CalendarView
 from dialogs import AvailabilityDialog, ExamDialog, TimetableDialog
 from engine import PlannerService
-from ui_common import (
-    MAIN_MARGIN_BOTTOM, MAIN_MARGIN_H, MAIN_MARGIN_TOP, get_stylesheet
-)
+from sidebar import ExpandedSidebar, LeftNavRail
+from ui_common import UI_STYLESHEET, create_light_palette
 from views import SubjectsView, TasksView
 
 
 class MainWindow(QMainWindow):
-    """Ana uygulama penceresi."""
+    """Görseldeki tasarımı birebir yansıtan modern ana pencere."""
 
     def __init__(self, service: PlannerService) -> None:
         super().__init__()
         self.service = service
-        self.current_theme = "dark"  # Varsayılan mod
 
+        self._setup_palette()
         self._setup_window()
-        self._setup_views()
-        self._setup_tabs()
-        self._setup_central_widget()
-        self._connect_views()
-        self._setup_menu()
-        self._apply_theme()
-        self.statusBar().showMessage("Hazır")
+        self._setup_components()
+        self._setup_layout()
+        self._connect_signals()
+
+        # Varsayılan olarak Takvim sekmesini aç (Context sidebar gizlenir)
+        self._on_tab_switched(0)
+
+    def _setup_palette(self) -> None:
+        light_pal = create_light_palette()
+        self.setPalette(light_pal)
+        app = QApplication.instance()
+        if app:
+            app.setPalette(light_pal)
 
     def _setup_window(self) -> None:
         self.setWindowTitle("Dinamik Akademik Çalışma Planlayıcı")
-        self.resize(1240, 800)
+        self.resize(1300, 840)
+        self.setStyleSheet(UI_STYLESHEET)
 
-    def _setup_views(self) -> None:
-        self.calendar = CalendarView(self.service)
-        self.subjects = SubjectsView(self.service)
-        self.tasks = TasksView(self.service)
+    def _setup_components(self) -> None:
+        # 1. Katman: Sol Dar Siyah Navigasyon Çubuğu
+        self.nav_rail = LeftNavRail(self)
 
-    def _setup_tabs(self) -> None:
-        self.tabs = QTabWidget()
-        self.tabs.addTab(self.calendar, "Takvim")
-        self.tabs.addTab(self.subjects, "Dersler")
-        self.tabs.addTab(self.tasks, "Görevler")
-        self.tabs.currentChanged.connect(self._on_tab)
+        # 2. Katman: Arkaplanla Birebir Aynı Şeffaf Genişletilmiş Sidebar
+        self.expanded_sidebar = ExpandedSidebar(self.service, self)
 
-        # Tab bar'ın sağ üst köşesine hızlı tema değiştirici buton
-        self.theme_btn = QPushButton("☀️ Açık Mod")
-        self.theme_btn.setFixedHeight(28)
-        self.theme_btn.clicked.connect(self._toggle_theme)
-        self.tabs.setCornerWidget(self.theme_btn)
+        # 3. Katman: Sağdaki Büyük Beyaz Kart (Modern Content Card)
+        self.main_stack = QStackedWidget()
+        self.main_stack.setStyleSheet("""
+            QStackedWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #979da6;
+                border-radius: 10px;
+                padding: 10px;
+            }
+        """)
 
-    def _setup_central_widget(self) -> None:
+        # İç Görünümler
+        self.calendar_view = CalendarView(self.service)
+        self.subjects_view = SubjectsView(self.service)
+        self.tasks_view = TasksView(self.service)
+
+        self.main_stack.addWidget(self.calendar_view)
+        self.main_stack.addWidget(self.subjects_view)
+        self.main_stack.addWidget(self.tasks_view)
+
+    def _setup_layout(self) -> None:
         central = QWidget()
-        central_layout = QVBoxLayout(central)
-        central_layout.setContentsMargins(
-            MAIN_MARGIN_H,
-            MAIN_MARGIN_TOP,
-            MAIN_MARGIN_H,
-            MAIN_MARGIN_BOTTOM
-        )
-        central_layout.setSpacing(0)
-        central_layout.addWidget(self.tabs)
+        layout = QHBoxLayout(central)
+        layout.setContentsMargins(4, 4, 2, 4)
+        layout.setSpacing(6)
+
+        layout.addWidget(self.nav_rail)
+        layout.addWidget(self.expanded_sidebar)
+        layout.addWidget(self.main_stack, 1)
+
         self.setCentralWidget(central)
 
-    def _connect_views(self) -> None:
-        self.calendar.plan_changed.connect(self.tasks.refresh)
+    def _connect_signals(self) -> None:
+        # Tab değişimi
+        self.nav_rail.tab_changed.connect(self._on_tab_switched)
 
-    def _setup_menu(self) -> None:
-        plan_menu = self.menuBar().addMenu("Planlama")
-        plan_menu.addAction("Yeniden planla", self.calendar.replan)
-        plan_menu.addSeparator()
-        plan_menu.addAction("Çalışma zamanları (müsaitlik)…", lambda: self._dialog(AvailabilityDialog))
-        plan_menu.addAction("Okul ders programı…", lambda: self._dialog(TimetableDialog))
-        plan_menu.addAction("Sınavlar…", lambda: self._dialog(ExamDialog))
+        # Sol rail'deki planlama işlemleri
+        self.nav_rail.planning_triggered.connect(self._on_planning_action)
 
-        view_menu = self.menuBar().addMenu("Görünüm")
-        view_menu.addAction("Açık Mod", lambda: self._set_theme("light"))
-        view_menu.addAction("Koyu Mod", lambda: self._set_theme("dark"))
+        # Sidebar seçimleri
+        self.expanded_sidebar.subject_selected.connect(self.subjects_view.select_subject)
+        self.expanded_sidebar.subject_add_requested.connect(self._add_subject)
+        self.expanded_sidebar.task_filter_selected.connect(self.tasks_view.set_filter)
 
-    def _toggle_theme(self) -> None:
-        new_theme = "light" if self.current_theme == "dark" else "dark"
-        self._set_theme(new_theme)
+        # Takvim planı değişince görevleri tazele
+        self.calendar_view.plan_changed.connect(self.tasks_view.refresh)
 
-    def _set_theme(self, theme: str) -> None:
-        self.current_theme = theme
-        self._apply_theme()
+    def _on_tab_switched(self, index: int) -> None:
+        self.main_stack.setCurrentIndex(index)
+        self.nav_rail.set_current_index(index)
+        self.expanded_sidebar.update_view(index, self.subjects_view.current_sid)
 
-    def _apply_theme(self) -> None:
-        is_dark = (self.current_theme == "dark")
-        self.setStyleSheet(get_stylesheet(self.current_theme))
-        self.theme_btn.setText("☀️ Açık Mod" if is_dark else "🌙 Koyu Mod")
+        # İlgili sayfayı tazele
+        if index == 0:
+            self.calendar_view.refresh()
+        elif index == 1:
+            self.subjects_view.refresh()
+        elif index == 2:
+            self.tasks_view.refresh()
 
-        self.calendar.set_theme_mode(is_dark)
-        self.calendar.refresh()
-        self.subjects.refresh()
-        self.tasks.refresh()
+    def _add_subject(self) -> None:
+        name, ok = QInputDialog.getText(self, "Yeni Ders", "Ders adı:")
+        if ok and name.strip():
+            self.service.add_subject(name.strip())
+            self.expanded_sidebar.update_view(1, self.subjects_view.current_sid)
+            self.subjects_view.refresh()
 
-    def _dialog(self, cls: type[QDialog]) -> None:
-        cls(self.service, self).exec()
-        self.calendar.refresh()
+    def _on_planning_action(self, action: str) -> None:
+        if action == "replan":
+            self.calendar_view.replan()
+        elif action == "availability":
+            self._open_dialog(AvailabilityDialog)
+        elif action == "timetable":
+            self._open_dialog(TimetableDialog)
+        elif action == "exams":
+            self._open_dialog(ExamDialog)
 
-    def _on_tab(self, index: int) -> None:
-        (self.calendar, self.subjects, self.tasks)[index].refresh()
+    def _open_dialog(self, dialog_cls: type[QDialog]) -> None:
+        dialog_cls(self.service, self).exec()
+        self.calendar_view.refresh()

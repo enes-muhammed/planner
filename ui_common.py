@@ -1,9 +1,10 @@
-"""ui_common.py - Ortak stiller, temalar (Light & Dark), sabitler ve UI yardımcıları."""
+"""ui_common.py - Saf Açık Tema (Light Mode), borderless modern stil ve UI yardımcıları."""
 from __future__ import annotations
 
 from datetime import date, time
 
 from PySide6.QtCore import QDate, Qt, QTime
+from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView, QDateEdit, QDialog, QDialogButtonBox, QMessageBox,
     QTableWidget, QTableWidgetItem, QTimeEdit, QWidget
@@ -17,252 +18,284 @@ MAIN_MARGIN_H = 18
 MAIN_MARGIN_TOP = 12
 MAIN_MARGIN_BOTTOM = 18
 
-TAB_CONTENT_GAP = 10
+TAB_CONTENT_GAP = 12
 TAB_CONTENT_MARGIN_H = 8
 TAB_CONTENT_MARGIN_TOP = 6
 TAB_CONTENT_MARGIN_BOTTOM = 8
 
 TAB_BAR_TOP_PADDING = 4
 TAB_BAR_BOTTOM_PADDING = 4
-TAB_BAR_SIDE_PADDING = 0
-TAB_HORIZONTAL_PADDING = 15
-TAB_VERTICAL_PADDING = 5
+TAB_BAR_SIDE_PADDING = 6
+TAB_HORIZONTAL_PADDING = 16
+TAB_VERTICAL_PADDING = 6
 TAB_RADIUS = 6
 
 BUTTON_RADIUS = 6
 INPUT_RADIUS = 6
 GROUP_RADIUS = 8
-TABLE_RADIUS = 7
+TABLE_RADIUS = 8
 
 
-def get_stylesheet(theme: str = "dark") -> str:
-    """Açık (Light) ve Koyu (Dark) mod için modern stil şablonu."""
-    if theme == "light":
-        return f"""
-        QMainWindow {{
-            background-color: #F8FAFC;
-        }}
-        QWidget {{
-            color: #0F172A;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }}
-        QTabWidget::pane {{
-            border: 1px solid #E2E8F0;
-            border-radius: {GROUP_RADIUS}px;
-            background-color: #FFFFFF;
-            margin-top: {TAB_CONTENT_GAP}px;
-        }}
-        QTabBar {{
-            background: transparent;
-            padding-top: {TAB_BAR_TOP_PADDING}px;
-            padding-bottom: {TAB_BAR_BOTTOM_PADDING}px;
-        }}
-        QTabBar::tab {{
-            padding: {TAB_VERTICAL_PADDING}px {TAB_HORIZONTAL_PADDING}px;
-            margin-right: 4px;
-            border: 1px solid transparent;
-            border-radius: {TAB_RADIUS}px;
-            background: transparent;
-            color: #0F172A;
-            font-weight: 500;
-            font-size: 13px;
-        }}
-        QTabBar::tab:hover {{
-            background-color: #E2E8F0;
-        }}
-        QTabBar::tab:selected {{
-            background-color: #0F172A;
-            color: #FFFFFF;
-            font-weight: 600;
-        }}
-        QPushButton {{
-            background-color: #FFFFFF;
-            border: 1px solid #CBD5E1;
-            border-radius: {BUTTON_RADIUS}px;
-            padding: 6px 14px;
-            font-weight: 500;
-            color: #0F172A;
-        }}
-        QPushButton:hover {{
-            background-color: #F1F5F9;
-            border-color: #94A3B8;
-        }}
-        QPushButton:pressed {{
-            background-color: #E2E8F0;
-        }}
-        QPushButton[primary="true"] {{
-            background-color: #0F172A;
-            color: #FFFFFF;
-            border: 1px solid #0F172A;
-            font-weight: 600;
-        }}
-        QPushButton[primary="true"]:hover {{
-            background-color: #1E293B;
-        }}
-        QLineEdit, QComboBox, QSpinBox, QDateEdit, QTimeEdit {{
-            background-color: #FFFFFF;
-            border: 1px solid #CBD5E1;
-            border-radius: {INPUT_RADIUS}px;
-            padding: 5px 8px;
-            min-height: 24px;
-            color: #0F172A;
-        }}
-        QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus, QTimeEdit:focus {{
-            border: 1.5px solid #2563EB;
-        }}
-        QGroupBox {{
-            border: 1px solid #E2E8F0;
-            border-radius: {GROUP_RADIUS}px;
-            margin-top: 10px;
-            padding: 10px;
-            font-weight: 600;
-        }}
-        QGroupBox::title {{
-            subcontrol-origin: margin;
-            left: 10px;
-            padding: 0 4px;
-            color: #475569;
-        }}
-        QTableWidget {{
-            border: 1px solid #E2E8F0;
-            border-radius: {TABLE_RADIUS}px;
-            gridline-color: #F1F5F9;
-            background-color: #FFFFFF;
-            alternate-background-color: #F8FAFC;
-        }}
-        QTableWidget::item:selected {{
-            background-color: #E0E7FF;
-            color: #1E1B4B;
-        }}
-        QListWidget, QTextEdit {{
-            background-color: #FFFFFF;
-            border: 1px solid #CBD5E1;
-            border-radius: {TABLE_RADIUS}px;
-        }}
-        QScrollArea {{
-            border: none;
-            background: transparent;
-        }}
-        #calendarLegend, #calendarSummary {{
-            color: #475569;
-            font-size: 11px;
-            font-weight: 500;
-        }}
-        """
+def create_light_palette() -> QPalette:
+    """İşletim sistemi Dark Mode olsa bile Qt'nin koyu renk çekmesini engelleyen palet."""
+    pal = QPalette()
+    pal.setColor(QPalette.ColorRole.Window, QColor("#F8F9FA"))
+    pal.setColor(QPalette.ColorRole.WindowText, QColor("#202124"))
+    pal.setColor(QPalette.ColorRole.Base, QColor("#FFFFFF"))
+    pal.setColor(QPalette.ColorRole.AlternateBase, QColor("#F8F9FA"))
+    pal.setColor(QPalette.ColorRole.ToolTipBase, QColor("#202124"))
+    pal.setColor(QPalette.ColorRole.ToolTipText, QColor("#FFFFFF"))
+    pal.setColor(QPalette.ColorRole.Text, QColor("#202124"))
+    pal.setColor(QPalette.ColorRole.Button, QColor("#F1F3F4"))
+    pal.setColor(QPalette.ColorRole.ButtonText, QColor("#202124"))
+    pal.setColor(QPalette.ColorRole.BrightText, QColor("#FFFFFF"))
+    pal.setColor(QPalette.ColorRole.Link, QColor("#1A73E8"))
+    pal.setColor(QPalette.ColorRole.Highlight, QColor("#1A73E8"))
+    pal.setColor(QPalette.ColorRole.HighlightedText, QColor("#FFFFFF"))
+    pal.setColor(QPalette.ColorRole.PlaceholderText, QColor("#70757A"))
+    pal.setColor(QPalette.ColorRole.Mid, QColor("#DADCE0"))
+    pal.setColor(QPalette.ColorRole.Midlight, QColor("#E8EAED"))
+    pal.setColor(QPalette.ColorRole.Dark, QColor("#BDC1C6"))
+    return pal
 
-    # DARK MODE
-    return f"""
-    QMainWindow {{
-        background-color: #0F172A;
-    }}
-    QWidget {{
-        color: #F8FAFC;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }}
-    QTabWidget::pane {{
-        border: 1px solid #334155;
-        border-radius: {GROUP_RADIUS}px;
-        background-color: #1E293B;
-        margin-top: {TAB_CONTENT_GAP}px;
-    }}
-    QTabBar {{
-        background: transparent;
-        padding-top: {TAB_BAR_TOP_PADDING}px;
-        padding-bottom: {TAB_BAR_BOTTOM_PADDING}px;
-    }}
-    QTabBar::tab {{
-        padding: {TAB_VERTICAL_PADDING}px {TAB_HORIZONTAL_PADDING}px;
-        margin-right: 4px;
-        border: 1px solid transparent;
-        border-radius: {TAB_RADIUS}px;
-        background: transparent;
-        color: #E2E8F0;
-        font-weight: 500;
-        font-size: 13px;
-    }}
-    QTabBar::tab:hover {{
-        background-color: #334155;
-    }}
-    QTabBar::tab:selected {{
-        background-color: #FFFFFF;
-        color: #0F172A;
-        font-weight: 600;
-    }}
-    QPushButton {{
-        background-color: #1E293B;
-        border: 1px solid #475569;
-        border-radius: {BUTTON_RADIUS}px;
-        padding: 6px 14px;
-        font-weight: 500;
-        color: #F8FAFC;
-    }}
-    QPushButton:hover {{
-        background-color: #334155;
-        border-color: #64748B;
-    }}
-    QPushButton:pressed {{
-        background-color: #0F172A;
-    }}
-    QPushButton[primary="true"] {{
-        background-color: #38BDF8;
-        color: #0F172A;
-        border: 1px solid #38BDF8;
-        font-weight: 600;
-    }}
-    QPushButton[primary="true"]:hover {{
-        background-color: #0EA5E9;
-    }}
-    QLineEdit, QComboBox, QSpinBox, QDateEdit, QTimeEdit {{
-        background-color: #1E293B;
-        border: 1px solid #475569;
-        border-radius: {INPUT_RADIUS}px;
-        padding: 5px 8px;
-        min-height: 24px;
-        color: #F8FAFC;
-    }}
-    QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDateEdit:focus, QTimeEdit:focus {{
-        border: 1.5px solid #38BDF8;
-    }}
-    QGroupBox {{
-        border: 1px solid #334155;
-        border-radius: {GROUP_RADIUS}px;
-        margin-top: 10px;
-        padding: 10px;
-        font-weight: 600;
-    }}
-    QGroupBox::title {{
-        subcontrol-origin: margin;
-        left: 10px;
-        padding: 0 4px;
-        color: #94A3B8;
-    }}
-    QTableWidget {{
-        border: 1px solid #334155;
-        border-radius: {TABLE_RADIUS}px;
-        gridline-color: #334155;
-        background-color: #1E293B;
-        alternate-background-color: #172554;
-    }}
-    QTableWidget::item:selected {{
-        background-color: #0284C7;
-        color: #FFFFFF;
-    }}
-    QListWidget, QTextEdit {{
-        background-color: #1E293B;
-        border: 1px solid #475569;
-        border-radius: {TABLE_RADIUS}px;
-    }}
-    QScrollArea {{
-        border: none;
-        background: transparent;
-    }}
-    #calendarLegend, #calendarSummary {{
-        color: #94A3B8;
-        font-size: 11px;
-        font-weight: 500;
-    }}
-    """
 
+UI_STYLESHEET = f"""
+QMainWindow {{
+    background-color: #F8F9FA;
+}}
+
+QWidget {{
+    color: #202124;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}}
+
+QDialog {{
+    background-color: #FFFFFF;
+    color: #202124;
+}}
+
+/* YALNIZCA EN DIŞTAKİ BÜYÜK KAPSAYICI ÇERÇEVELİDİR */
+QTabWidget::pane {{
+    border: 1px solid #E2E8F0;
+    border-radius: {GROUP_RADIUS}px;
+    background-color: #FFFFFF;
+    margin-top: {TAB_CONTENT_GAP}px;
+}}
+
+/* SİYAH TAB BAR (Segmented Control Tarzı) */
+QTabBar {{
+    background-color: #000000;
+    border-radius: 8px;
+    padding-top: {TAB_BAR_TOP_PADDING}px;
+    padding-bottom: {TAB_BAR_BOTTOM_PADDING}px;
+    padding-left: {TAB_BAR_SIDE_PADDING}px;
+    padding-right: {TAB_BAR_SIDE_PADDING}px;
+}}
+
+QTabBar::tab {{
+    padding: {TAB_VERTICAL_PADDING}px {TAB_HORIZONTAL_PADDING}px;
+    margin-right: 4px;
+    border: none;
+    border-radius: {TAB_RADIUS}px;
+    background: transparent;
+    color: #9CA3AF;
+    font-weight: 500;
+    font-size: 13px;
+}}
+
+QTabBar::tab:hover {{
+    background-color: #27272A;
+    color: #F3F4F6;
+}}
+
+QTabBar::tab:selected {{
+    background-color: #FFFFFF;
+    color: #000000;
+    font-weight: 600;
+}}
+
+/* BORDERLESS MODERN BUTONLAR */
+QPushButton {{
+    background-color: #F1F3F4;
+    border: none;
+    border-radius: {BUTTON_RADIUS}px;
+    padding: 7px 14px;
+    font-weight: 500;
+    color: #202124;
+}}
+
+QPushButton:hover {{
+    background-color: #E8EAED;
+}}
+
+QPushButton:pressed {{
+    background-color: #DADCE0;
+}}
+
+QPushButton[primary="true"] {{
+    background-color: #1A73E8;
+    color: #FFFFFF;
+    border: none;
+    font-weight: 600;
+}}
+
+QPushButton[primary="true"]:hover {{
+    background-color: #1557B0;
+}}
+
+/* BORDERLESS INPUT ELEMANLARI */
+QLineEdit,
+QComboBox,
+QSpinBox,
+QDateEdit,
+QTimeEdit {{
+    background-color: #F1F3F4;
+    border: none;
+    border-radius: {INPUT_RADIUS}px;
+    padding: 6px 10px;
+    min-height: 24px;
+    color: #202124;
+}}
+
+QLineEdit:focus,
+QComboBox:focus,
+QSpinBox:focus,
+QDateEdit:focus,
+QTimeEdit:focus {{
+    background-color: #E8F0FE;
+    color: #1A73E8;
+}}
+
+/* DROPDOWN LİSTE ELEMANLARI */
+QComboBox QAbstractItemView {{
+    background-color: #FFFFFF;
+    color: #202124;
+    border: 1px solid #E2E8F0;
+    border-radius: 6px;
+    padding: 4px;
+    selection-background-color: #E8F0FE;
+    selection-color: #1A73E8;
+    outline: none;
+}}
+
+/* BORDERLESS GRUP KUTULARI */
+QGroupBox {{
+    border: none;
+    background: transparent;
+    margin-top: 14px;
+    padding: 6px 0px;
+    font-weight: 600;
+}}
+
+QGroupBox::title {{
+    subcontrol-origin: margin;
+    left: 0px;
+    padding: 0 4px;
+    color: #3C4043;
+    font-size: 13px;
+}}
+
+/* BORDERLESS TABLOLAR */
+QTableWidget {{
+    border: none;
+    background-color: #FFFFFF;
+    alternate-background-color: #F8F9FA;
+    border-radius: {TABLE_RADIUS}px;
+}}
+
+QHeaderView::section {{
+    background-color: #F8F9FA;
+    color: #5F6368;
+    border: none;
+    border-bottom: 1px solid #E8EAED;
+    padding: 6px 8px;
+    font-weight: 600;
+    font-size: 12px;
+}}
+
+QTableWidget::item {{
+    padding: 6px 8px;
+    border: none;
+    color: #202124;
+}}
+
+QTableWidget::item:selected {{
+    background-color: #E8F0FE;
+    color: #1A73E8;
+}}
+
+/* DİĞER LİSTE VE METİN ALANLARI */
+QListWidget {{
+    border: none;
+    background-color: #F8F9FA;
+    border-radius: {TABLE_RADIUS}px;
+    padding: 4px;
+}}
+
+QListWidget::item {{
+    padding: 6px 8px;
+    border-radius: 4px;
+    color: #202124;
+}}
+
+QListWidget::item:selected {{
+    background-color: #E8F0FE;
+    color: #1A73E8;
+}}
+
+QTextEdit {{
+    border: none;
+    background-color: #F8F9FA;
+    border-radius: {TABLE_RADIUS}px;
+    padding: 8px;
+    color: #202124;
+}}
+
+QScrollArea {{
+    border: none;
+    background: transparent;
+}}
+
+/* AÇILIR MENÜLER */
+QMenu {{
+    background-color: #FFFFFF;
+    color: #202124;
+    border: 1px solid #E2E8F0;
+    border-radius: 8px;
+    padding: 4px;
+}}
+
+QMenu::item {{
+    padding: 6px 20px;
+    border-radius: 4px;
+    color: #202124;
+}}
+
+QMenu::item:selected {{
+    background-color: #F1F3F4;
+    color: #1A73E8;
+}}
+
+QScrollBar:vertical {{
+    background: transparent;
+    width: 8px;
+    margin: 0;
+}}
+
+QScrollBar::handle:vertical {{
+    background: #DADCE0;
+    border-radius: 4px;
+    min-height: 24px;
+}}
+
+QScrollBar::handle:vertical:hover {{
+    background: #BDC1C6;
+}}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0;
+}}
+"""
 
 MONTHS = [
     "Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran",
@@ -300,7 +333,7 @@ AVAIL_LABEL = {
 }
 
 
-# ----------------------------------------------------------------- Yardımcı Fonksiyonlar
+# ----------------------------------------------------------------- Yardımcılar
 
 def fmt_date(d: date | None) -> str:
     return "-" if d is None else f"{d.day} {MONTHS[d.month - 1]}"
@@ -336,6 +369,7 @@ def make_table(headers: list[str]) -> QTableWidget:
     t.verticalHeader().setVisible(False)
     t.horizontalHeader().setStretchLastSection(True)
     t.setAlternatingRowColors(True)
+    t.setShowGrid(False)
     return t
 
 
