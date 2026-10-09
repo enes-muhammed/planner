@@ -56,7 +56,7 @@ def main() -> int:
         seed_demo(service)
 
     from PySide6.QtWidgets import QApplication   # type: ignore # imported late: engine/tests need no Qt
-    from true_ui_never_touch import MainWindow
+    from ui import MainWindow
 
     app = QApplication(sys.argv)
     window = MainWindow(service)
