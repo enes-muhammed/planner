@@ -26,13 +26,20 @@ from ui_common import (
 # ==============================================================================
 HOUR_HEIGHT = 140              # 60 dakikanın piksel yüksekliği (Büyük ve ferah)
 GRID_INTERVAL_MINUTES = 30     # Kılavuz çizgisi sıklığı (dk cinsinden: 15, 30, 60 vb.)
-EVENT_PADDING_H = 3            # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
-EVENT_PADDING_V = 2            # Event kutusunun alt ve üst saat çizgilerine mesafesi (px)
+EVENT_PADDING_H = 6            # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
+EVENT_PADDING_V = 6           # Event kutusunun alt ve üst saat çizgilerine mesafesi (px)
 EVENT_CORNER_RADIUS = 7        # Event kutularının köşe yumuşatması (border-radius)
 GUTTER_WIDTH = 58              # Sol saat sütunu genişliği (px)
 START_HOUR = 0                 # Takvim başlangıç saati
 END_HOUR = 24                  # Takvim bitiş saati
 CALENDAR_BOTTOM_PADDING = 12   # 24:00 çizgisinin altındaki rahatlatıcı boşluk (px)
+VERTICAL_LINE_WIDTH = 1             # Dikey gün ayırıcı çizgi kalınlığı (px)
+HORIZONTAL_LINE_WIDTH = 1           # Yatay saat çizgisi kalınlığı (px)
+VERTICAL_LINE_COLOR = QColor(215, 217, 222)  # Dikey gün ayırıcı çizgi rengi: #E5E7EB
+HORIZONTAL_LINE_COLOR = QColor(215, 217, 222)  # Yatay saat ve kılavuz çizgisi rengi: #E5E7EB
+HEADER_CALENDAR_GAP = 20          # Takvim başlığı ile takvim kanvası arasındaki boşluk (px)
+THICK_SUB_LINES = True  # True: Ara kılavuz çizgileri kalın, False: İnce (referans görseldeki gibi)
+
 
 WeekdayNames = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"]
 
@@ -69,7 +76,7 @@ class DayHeaderWidget(QWidget):
 
         # Beyaz temiz zemin ve alt ayırıcı çizgi
         p.fillRect(self.rect(), QColor("#FFFFFF"))
-        p.setPen(QPen(QColor(229, 231, 235), 1))
+        p.setPen(QPen(VERTICAL_LINE_COLOR, VERTICAL_LINE_WIDTH))
         p.drawLine(0, self.height() - 1, self.width(), self.height() - 1)
 
         for i in range(7):
@@ -80,7 +87,7 @@ class DayHeaderWidget(QWidget):
             self._draw_day_header(p, i, d, x, col_w, is_today)
 
             # Dikey gün ayırıcı çizgi
-            p.setPen(QPen(QColor(243, 244, 246), 1))
+            p.setPen(QPen(VERTICAL_LINE_COLOR, VERTICAL_LINE_WIDTH))
             p.drawLine(int(x), 0, int(x), self.height() - 1)
 
         p.end()
@@ -295,10 +302,12 @@ class WeekGridCanvas(QWidget):
 
         # 4. Dikey Gün Ayırıcıları
         h_max = (END_HOUR - START_HOUR) * HOUR_HEIGHT
-        day_pen = QPen(QColor(241, 243, 246), 1)
+
+        day_pen = QPen(VERTICAL_LINE_COLOR, VERTICAL_LINE_WIDTH)
         p.setPen(day_pen)
         for i in range(8):
             x = GUTTER_WIDTH + i * col_w
+            # Dikey çizgi (gün ayırıcı)
             p.drawLine(int(x), 0, int(x), int(h_max))
 
         # 5. Müsaitlik Blokları
@@ -317,8 +326,12 @@ class WeekGridCanvas(QWidget):
         time_font.setPointSize(8)
         p.setFont(time_font)
 
-        hour_pen = QPen(QColor(229, 231, 235), 1)
-        sub_pen = QPen(QColor(243, 244, 246), 1, Qt.PenStyle.SolidLine)
+        hour_pen = QPen(HORIZONTAL_LINE_COLOR, HORIZONTAL_LINE_WIDTH)
+
+        if THICK_SUB_LINES:
+            sub_pen = QPen(HORIZONTAL_LINE_COLOR, HORIZONTAL_LINE_WIDTH)
+        else:
+            sub_pen = QPen(QColor(243, 244, 246), 1, Qt.PenStyle.SolidLine)
 
         # Kaç dakikada bir kılavuz çizgisi çizileceği
         sub_intervals = [
@@ -533,7 +546,6 @@ class WeekGridCanvas(QWidget):
                 tip += f"<br>Konu: {les.recorded_topic}"
             self.setToolTip(tip)
 
-
 class CalendarView(QWidget):
     """Görseldeki üst bar ve ferah takvim konteyneri."""
 
@@ -667,6 +679,8 @@ class CalendarView(QWidget):
                 background-color: #27272A;
             }
         """)
+        #Bugün butonunun içinde bulunduğu widget ile aynı boyda olsun çünkü bugün butonu daha küçük
+        plan_btn.setFixedHeight(today_btn.sizeHint().height()+12)
         plan_btn.clicked.connect(self.replan)
         top_bar.addWidget(plan_btn)
 
