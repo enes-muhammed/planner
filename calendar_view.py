@@ -25,14 +25,16 @@ from ui_common import (
 # ⚙️ TAKVİM YAPILANDIRMA DEĞİŞKENLERİ (İstediğiniz gibi özelleştirebilirsiniz)
 # ==============================================================================
 HOUR_HEIGHT = 140              # 60 dakikanın piksel yüksekliği (Büyük ve ferah)
-GRID_INTERVAL_MINUTES = 15     # Kılavuz çizgisi sıklığı (dk cinsinden: 15, 30, 60 vb.)
+GRID_INTERVAL_MINUTES = 30     # Kılavuz çizgisi sıklığı (dk cinsinden: 15, 30, 60 vb.)
 EVENT_PADDING_H = 3            # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
 EVENT_PADDING_V = 2            # Event kutusunun alt ve üst saat çizgilerine mesafesi (px)
 EVENT_CORNER_RADIUS = 7        # Event kutularının köşe yumuşatması (border-radius)
 GUTTER_WIDTH = 58              # Sol saat sütunu genişliği (px)
 START_HOUR = 0                 # Takvim başlangıç saati
 END_HOUR = 24                  # Takvim bitiş saati
-CALENDAR_BOTTOM_PADDING = 24   # 24:00 çizgisinin altındaki rahatlatıcı boşluk (px)
+CALENDAR_BOTTOM_PADDING = 12   # 24:00 çizgisinin altındaki rahatlatıcı boşluk (px)
+
+WeekdayNames = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"]
 
 
 @dataclass
@@ -92,7 +94,7 @@ class DayHeaderWidget(QWidget):
         col_w: float,
         is_today: bool
     ) -> None:
-        day_name = WEEKDAYS[index][:3]
+        day_name = WeekdayNames[index]
         day_num = str(day.day)
 
         font = QFont(self.font())

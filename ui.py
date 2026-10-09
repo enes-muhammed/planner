@@ -73,7 +73,7 @@ class MainWindow(QMainWindow):
     def _setup_layout(self) -> None:
         central = QWidget()
         layout = QHBoxLayout(central)
-        layout.setContentsMargins(4, 4, 2, 4)
+        layout.setContentsMargins(4, 4, 4, 4)
         layout.setSpacing(6)
 
         layout.addWidget(self.nav_rail)
