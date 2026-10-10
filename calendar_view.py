@@ -596,7 +596,6 @@ class WeekGridCanvas(QWidget):
 
 class CalendarView(QWidget):
     """Görseldeki üst bar ve ferah takvim konteyneri."""
-
     plan_changed = Signal()
 
     def __init__(
