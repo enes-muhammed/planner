@@ -1,11 +1,12 @@
 """calendar_view.py - Modern minimalist haftalık takvim bileşeni."""
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPen
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
     QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QScrollArea, QVBoxLayout, QWidget
@@ -20,6 +21,9 @@ from ui_common import (
     MONTHS, TAB_CONTENT_MARGIN_BOTTOM, TAB_CONTENT_MARGIN_H,
     TAB_CONTENT_MARGIN_TOP, WEEKDAYS, fmt_date, show_error
 )
+from PySide6.QtSvg import QSvgRenderer
+from pathlib import Path
+
 
 # ==============================================================================
 # ⚙️ TAKVİM YAPILANDIRMA DEĞİŞKENLERİ (İstediğiniz gibi özelleştirebilirsiniz)
@@ -44,13 +48,15 @@ HORIZONTAL_LINE_WIDTH = 1      # Yatay saat çizgisi kalınlığı (px)
 VERTICAL_LINE_COLOR = QColor(215, 217, 222)    # Dikey gün ayırıcı çizgi rengi: #D7D9DE
 HORIZONTAL_LINE_COLOR = QColor(215, 217, 222)  # Yatay saat ve kılavuz çizgisi rengi: #D7D9DE
 
-HEADER_CALENDAR_GAP = 24     # Üst araç çubuğu (Header) ile Takvim arasındaki boşluk (px)
+HEADER_CALENDAR_GAP = 24       # Üst araç çubuğu (Header) ile Takvim arasındaki boşluk (px)
 THICK_SUB_LINES = True         # True: Ara kılavuz çizgileri kalın, False: İnce
-DAY_HEADER_WIDGET_HEIGHT = 38           # Gün başlık çubuğu yüksekliği (px)
+DAY_HEADER_WIDGET_HEIGHT = 38  # Gün başlık çubuğu yüksekliği (px)
 TODAY_HIGHLIGHT_ENABLED = False  # Bugünün sütunu hafif gri ile vurgulansın mı?
-DIVIDER_LINE_COLOR = QColor(151, 157, 166)  # Üst ve alt kenar çizgisi rengi:#979da6;
+DIVIDER_LINE_COLOR = QColor(151, 157, 166)  # Üst ve alt kenar çizgisi rengi
 
-# Çok hafif müsaitlik renkleri (Bugünün sütunu gibi ferah ve pastel)
+NOTIFICATION_DOT_ENABLED = True  # Sağ üst köşede bildirim noktası
+
+# Çok hafif müsaitlik renkleri
 AVAIL_PRIMARY_COLOR = QColor(244, 252, 246)      # Çok hafif yumuşak yeşil
 AVAIL_RESERVE_COLOR = QColor(255, 251, 240)      # Çok hafif yumuşak sarı
 AVAIL_UNAVAILABLE_COLOR = QColor(247, 248, 250)  # Çok hafif nötr gri
@@ -70,7 +76,7 @@ class _CalendarItem:
 
 
 class DayHeaderWidget(QWidget):
-    """Gün adı ve numarasını yan yana çizen, üst ve alt çizgisi kartı ikiye bölen başlık barı."""
+    """Gün adı ve numarasını yan yana çizen başlık barı."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -88,20 +94,16 @@ class DayHeaderWidget(QWidget):
         col_w = (self.width() - GUTTER_WIDTH) / 7.0
         today = date.today()
 
-        # 1. Beyaz temiz zemin
         p.fillRect(self.rect(), QColor("#FFFFFF"))
 
-        # 2. Üst kenar çizgisi (Kartın en solundan en sağına kadar kesintisiz uzanır)
         horiz_pen = QPen(HORIZONTAL_LINE_COLOR, 2)
         p.setPen(horiz_pen)
         p.drawLine(0, 0, self.width(), 0)
 
-        # 3. Alt kenar çizgisi (Day Header ile Canvas arasını kart boyunca ikiye böler)
         horiz_pen = QPen(HORIZONTAL_LINE_COLOR, 1)
         p.setPen(horiz_pen)
         p.drawLine(0, self.height() - 1, self.width(), self.height() - 1)
 
-        # 4. Gün başlıkları ve dikey ayırıcılar
         vert_pen = QPen(VERTICAL_LINE_COLOR, VERTICAL_LINE_WIDTH)
         for i in range(7):
             d = self.week_start + timedelta(days=i)
@@ -110,7 +112,6 @@ class DayHeaderWidget(QWidget):
 
             self._draw_day_header(p, i, d, x, col_w, is_today)
 
-            # Dikey gün ayırıcı çizgi (üst çizgi ile alt çizgi arasında)
             p.setPen(vert_pen)
             p.drawLine(int(x), 0, int(x), self.height() - 1)
 
@@ -157,15 +158,13 @@ class DayHeaderWidget(QWidget):
             badge_x = center_x - badge_width / 2.0
             badge_y = center_y - badge_height / 2.0
 
-            # Siyah rozet arka planı
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor("#18181B"))
             p.drawRoundedRect(
-                QRectF(badge_x-1, badge_y, badge_width-2, badge_height-2),
+                QRectF(badge_x - 1, badge_y, badge_width - 2, badge_height - 2),
                 5, 5
             )
 
-            # Gün adı: beyaz
             p.setPen(QColor("#FFFFFF"))
             day_name_rect = QRectF(
                 badge_x + padding_x,
@@ -179,7 +178,6 @@ class DayHeaderWidget(QWidget):
                 day_name
             )
 
-            # Gün numarası: beyaz
             day_num_rect = QRectF(
                 badge_x + padding_x + day_name_width + spacing,
                 badge_y - 2,
@@ -192,7 +190,6 @@ class DayHeaderWidget(QWidget):
                 day_num
             )
         else:
-            # Diğer günler: "Pzt 6" şeklinde yan yana
             font.setBold(False)
             p.setFont(font)
             p.setPen(QColor("#6B7280"))
@@ -205,12 +202,12 @@ class DayHeaderWidget(QWidget):
             font.setBold(True)
             p.setFont(font)
             p.setPen(QColor("#1F2937"))
-            # yaznın biraz sağında çizilmesi için +2 px offset
             p.drawText(
                 QRectF(center_x + 4, -2, col_w / 2.0 - 2, self.height()),
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
                 day_num
             )
+
 
 class WeekGridCanvas(QWidget):
     """Zaman ızgarasını ve event bloklarını çizen kanvas."""
@@ -220,8 +217,14 @@ class WeekGridCanvas(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.service: PlannerService | None = None
+        self.subjects_by_id: dict = {}
+        self.topic_to_subject: dict = {}
         self._initialize_data()
         self._initialize_interaction()
+
+        self.repeat_icon = QSvgRenderer(
+            str(Path(__file__).parent / "assets" / "repeat.svg"))
 
     def _initialize_data(self) -> None:
         self.week_start = date.today()
@@ -240,15 +243,52 @@ class WeekGridCanvas(QWidget):
         week_start: date,
         sessions: list[SessionView],
         blocks: list[AvailabilityBlock],
-        lessons: list[SchoolLesson]
+        lessons: list[SchoolLesson],
+        service: PlannerService | None = None
     ) -> None:
         self.week_start = week_start
         self.sessions = sessions
         self.blocks = blocks
         self.lessons = lessons
+        if service is not None:
+            self.service = service
+        self._build_subject_cache()
         self.now = datetime.now()
         self.setFixedHeight((END_HOUR - START_HOUR) * HOUR_HEIGHT + CALENDAR_BOTTOM_PADDING)
         self.update()
+
+    def _build_subject_cache(self) -> None:
+        if not self.service:
+            return
+        try:
+            self.subjects_by_id = {s.id: s for s in self.service.list_subjects()}
+            self.topic_to_subject = {}
+            for s in self.subjects_by_id.values():
+                for t in self.service.list_topics(s.id):
+                    self.topic_to_subject[t.id] = s
+        except Exception:
+            pass
+
+    def _get_subject_color(self, subject_id: int) -> QColor:
+        if subject_id in self.subjects_by_id:
+            s = self.subjects_by_id[subject_id]
+            if s.color:
+                return QColor(s.color)
+        return QColor.fromHsv((subject_id * 65) % 360, 160, 195)
+
+    def _get_session_subject(self, sv: SessionView) -> tuple[str, QColor] | None:
+        if not self.service:
+            return None
+        try:
+            task = self.service.get_task(sv.session.task_id)
+            if task and task.topic_ids:
+                subj = self.topic_to_subject.get(task.topic_ids[0])
+                if subj:
+                    color = self._get_subject_color(subj.id)
+                    return subj.name, color
+        except Exception:
+            pass
+        return None
 
     def _col_w(self) -> float:
         return (self.width() - GUTTER_WIDTH) / 7.0
@@ -339,13 +379,9 @@ class WeekGridCanvas(QWidget):
         col_w = self._col_w()
         today = date.today()
 
-        # 1. Zemin
         p.fillRect(self.rect(), QColor("#FFFFFF"))
-
-        # 1.5. Sol Saat Sütunu (Gutter) Arka Planı
         p.fillRect(QRectF(0, 0, GUTTER_WIDTH, self.height()), GUTTER_COLOR)
 
-        # 2. Bugün Sütun Gölgelendirmesi
         if TODAY_HIGHLIGHT_ENABLED:
             for i in range(7):
                 d = self.week_start + timedelta(days=i)
@@ -356,13 +392,9 @@ class WeekGridCanvas(QWidget):
                         QColor(248, 250, 252)
                     )
 
-        # 3. Müsaitlik Blokları (Çizgilerin altına çizilir ki çizgiler üstte net görünsün)
         self._draw_availability(p, col_w)
-
-        # 4. Yatay Saat ve Kılavuz Çizgileri (Müsaitlik alanlarının üzerinden geçer)
         self._draw_grid_lines(p)
 
-        # 5. Dikey Gün Ayırıcıları (Müsaitlik alanlarının üzerinden geçer)
         h_max = (END_HOUR - START_HOUR) * HOUR_HEIGHT
         day_pen = QPen(VERTICAL_LINE_COLOR, VERTICAL_LINE_WIDTH)
         p.setPen(day_pen)
@@ -370,10 +402,7 @@ class WeekGridCanvas(QWidget):
             x = GUTTER_WIDTH + i * col_w
             p.drawLine(int(x), 0, int(x), int(h_max))
 
-        # 6. Event Kartları
         self._draw_calendar_items(p, col_w)
-
-        # 7. Canlı Zaman Çizgisi
         self._draw_current_time(p, col_w)
 
         p.end()
@@ -394,23 +423,19 @@ class WeekGridCanvas(QWidget):
             m for m in range(GRID_INTERVAL_MINUTES, 60, GRID_INTERVAL_MINUTES)
         ] if GRID_INTERVAL_MINUTES < 60 else []
 
-        # Sadece ilk çizgiyi çizmemesi gerekiyor
         for h in range(START_HOUR, END_HOUR + 1):
             y = (h - START_HOUR) * HOUR_HEIGHT
 
-            # Tam saat çizgisi
             p.setPen(hour_pen)
             if h != START_HOUR:
                 p.drawLine(int(GUTTER_WIDTH), int(y), self.width(), int(y))
 
-            # Ara kılavuz çizgileri
             if h < END_HOUR and INTERVAL_GRID_ENABLED:
                 p.setPen(sub_pen)
                 for minute in sub_intervals:
                     sub_y = y + HOUR_HEIGHT * (minute / 60.0)
                     p.drawLine(int(GUTTER_WIDTH), int(sub_y), self.width(), int(sub_y))
 
-            # Sol saat etiketleri (9 AM, 10 AM)
             if h > START_HOUR:
                 p.setPen(QColor(156, 163, 175))
                 hour = h % 12
@@ -444,7 +469,6 @@ class WeekGridCanvas(QWidget):
                 )
 
     def _item_rect(self, item: _CalendarItem, col_w: float) -> QRectF:
-        """Kutuyu sağdan, soldan, alttan ve üstten tam eşit boşlukla ortalar."""
         col_x = GUTTER_WIDTH + item.day_idx * col_w
         available_w = col_w - (2 * EVENT_PADDING_H)
         slot_w = available_w / item.total_cols
@@ -469,31 +493,183 @@ class WeekGridCanvas(QWidget):
             self._hits.append((rect, it))
 
             if it.lesson is not None:
-                self._draw_card(
-                    p, rect,
-                    title=it.lesson.subject_name,
-                    time_str=f"{it.lesson.start_time:%H:%M}",
-                    bg_color=QColor.fromHsv((it.lesson.subject_id * 65) % 360, 18, 253),
-                    border_color=QColor.fromHsv((it.lesson.subject_id * 65) % 360, 60, 230),
-                    text_color=QColor.fromHsv((it.lesson.subject_id * 65) % 360, 200, 140)
-                )
+                self._draw_lesson_card(p, rect, it.lesson)
             elif it.session is not None:
-                s = it.session.session
-                state = it.session.display_state(self.now)
-                bg_col, bdr_col, txt_col = self._get_session_style(it.session.task_class, state)
-                self._draw_card(
-                    p, rect,
-                    title=it.session.title,
-                    time_str=f"{s.start_time:%H:%M}\n{s.end_time:%H:%M}",
-                    bg_color=bg_col,
-                    border_color=bdr_col,
-                    text_color=txt_col
-                )
+                self._draw_session_card(p, rect, it.session)
+
+    def _draw_lesson_card(self, p: QPainter, rect: QRectF, lesson: SchoolLesson) -> None:
+        """Ders programı bloğu: Eski renkli pastel zemin, üst çizgi ve nokta yok; saat yok; konu varsa yazılır."""
+        h = (lesson.subject_id * 65) % 360
+        bg_color = QColor.fromHsv(h, 18, 253)
+        border_color = QColor.fromHsv(h, 60, 230)
+        text_color = QColor.fromHsv(h, 200, 140)
+
+        # 1. Zemin ve çerçeve
+        p.setBrush(bg_color)
+        p.setPen(QPen(border_color, 1))
+        p.drawRoundedRect(rect, EVENT_CORNER_RADIUS, EVENT_CORNER_RADIUS)
+
+        # 2. Ders Adı
+        title_font = QFont(self.font())
+        title_font.setPointSize(9)
+        title_font.setWeight(QFont.Weight.DemiBold)
+        p.setFont(title_font)
+        p.setPen(text_color)
+
+        pad = rect.adjusted(8, 7, -8, -6)
+        fm = QFontMetrics(title_font)
+        title_text = fm.elidedText(lesson.subject_name, Qt.TextElideMode.ElideRight, int(pad.width()))
+        p.drawText(pad, Qt.AlignmentFlag.AlignTop, title_text)
+
+        # 3. Konu varsa hafifçe yaz, yoksa hiçbir şey yapma
+        if lesson.recorded_topic and rect.height() > 32:
+            topic_font = QFont(self.font())
+            topic_font.setPointSize(8)
+            topic_color = QColor.fromHsv(h, 150, 160)
+            topic_pad = QRectF(rect.x() + 8, pad.y() + 16, rect.width() - 16, rect.height() - 22)
+            self._draw_smart_text(p, lesson.recorded_topic, topic_pad, topic_font, topic_color)
+
+    def _draw_session_card(self, p: QPainter, rect: QRectF, sv: SessionView) -> None:
+        """Tekrar, rutin ve teslim görevleri bloğu: Üst çizgisiz, bildirim noktası sağ üstte."""
+        s = sv.session
+        state = sv.display_state(self.now)
+        bg_col, bdr_col, txt_col = self._get_session_style(sv.task_class, state)
+
+        # 1. Zemin ve çerçeve (Üst çizgi tamamen kaldırıldı)
+        p.setBrush(bg_col)
+        p.setPen(QPen(bdr_col, 1))
+        p.drawRoundedRect(rect, EVENT_CORNER_RADIUS, EVENT_CORNER_RADIUS)
+
+        # 2. Sağ Üst Köşe Bildirim Noktası (Kırmızı: Overdue, Yeşil: Completed, Sarı: Deadline)
+        dot_color = None
+        if state == "overdue":
+            dot_color = QColor("#EF4444")
+        elif state == "completed":
+            dot_color = QColor("#10B981")
+        elif sv.task_class == TaskClass.DEADLINE_TASK:
+            dot_color = QColor("#F59E0B")
+
+        if NOTIFICATION_DOT_ENABLED and dot_color is not None:
+            self._draw_notification_dot(p, rect.right() - 10.0, rect.top() + 10.0, dot_color)
+
+        # 3. Başlık ve Tekrar İkonu ("Tekrar:" yazısı yerine ikon kullanılır)
+        p.setPen(txt_col)
+        title_font = QFont(self.font())
+        title_font.setPointSize(9)
+        title_font.setWeight(QFont.Weight.DemiBold)
+        p.setFont(title_font)
+
+        clean_title = re.sub(
+            r"^(Tekrar|Manuel Tekrar)\s*[:\-–]?\s*", "",
+            sv.title, flags=re.IGNORECASE
+        ).strip() or sv.title
+
+        # Sağ üstte nokta varsa yazının sağ boşluğunu 18px bırakarak çakışmayı önle
+        right_pad = -18 if (NOTIFICATION_DOT_ENABLED and dot_color is not None) else -8
+        pad = rect.adjusted(8, 7, right_pad, -6)
+
+        icon_prefix = "⟳ " if sv.task_class == TaskClass.REVIEW else ""
+        full_title = f"{icon_prefix}{clean_title}"
+
+        # Başlık metni
+        fm = QFontMetrics(title_font)
+
+        # Tekrar ikonu yalnızca REVIEW görevlerinde gösterilir
+        if sv.task_class == TaskClass.REVIEW:
+            icon_size = 10  # ⟳ karakterine yakın, küçük boyut
+            icon_gap = 6
+
+            icon_rect = QRectF(
+                pad.x() + 1,
+                pad.y() + 2,
+                icon_size,
+                icon_size
+            )
+
+            if self.repeat_icon.isValid():
+                self.repeat_icon.render(p, icon_rect)
+
+            # Metni ikonun sağına yerleştir
+            text_rect = QRectF(
+                pad.x() + icon_size + icon_gap,
+                pad.y() - 2,
+                max(0, pad.width() - icon_size - icon_gap),
+                pad.height()
+            )
+        else:
+            text_rect = pad
+
+        rendered_title = fm.elidedText(
+            clean_title,
+            Qt.TextElideMode.ElideRight,
+            int(text_rect.width())
+        )
+
+        p.drawText(text_rect, Qt.AlignmentFlag.AlignTop, rendered_title)
+
+        # 4. Alt bilgi: Saat ve aidiyet dersi
+        if rect.height() > 38:
+            sub_font = QFont(self.font())
+            sub_font.setPointSize(8)
+            p.setFont(sub_font)
+            p.setPen(QColor("#64748B"))
+
+            time_str = f"{s.start_time:%H:%M} - {s.end_time:%H:%M}"
+            subj_info = self._get_session_subject(sv)
+            if subj_info and rect.width() > 90:
+                subj_name, _ = subj_info
+                time_str = f"{time_str} • {subj_name}"
+
+            time_rect = QRectF(rect.x() + 8 + 0, pad.y() + 15, rect.width() - 16, rect.height() - 22)
+            elided_time = QFontMetrics(sub_font).elidedText(time_str, Qt.TextElideMode.ElideRight, int(time_rect.width()))
+            p.drawText(time_rect, Qt.AlignmentFlag.AlignTop, elided_time)
+
+    def _draw_notification_dot(self, p: QPainter, x: float, y: float, color: QColor) -> None:
+        """Sağ üst köşede bildirim noktası çizer."""
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(color)
+        p.drawEllipse(QPointF(x, y), 3.0, 3.0)
+
+    def _draw_smart_text(self, p: QPainter, text: str, rect: QRectF, font: QFont, color: QColor) -> None:
+        fm = QFontMetrics(font)
+        p.setFont(font)
+        p.setPen(color)
+
+        line_h = fm.lineSpacing()
+        max_lines = max(1, int(rect.height() / line_h))
+
+        if max_lines == 1:
+            elided = fm.elidedText(text, Qt.TextElideMode.ElideRight, int(rect.width()))
+            p.drawText(rect, Qt.AlignmentFlag.AlignTop, elided)
+            return
+
+        words = text.split(" ")
+        lines = []
+        cur_line = ""
+
+        for word in words:
+            test_line = f"{cur_line} {word}".strip()
+            if fm.horizontalAdvance(test_line) <= rect.width():
+                cur_line = test_line
+            else:
+                if cur_line:
+                    lines.append(cur_line)
+                cur_line = word
+                if len(lines) >= max_lines - 1:
+                    break
+
+        if cur_line:
+            lines.append(cur_line)
+
+        for i, line in enumerate(lines[:max_lines]):
+            line_rect = QRectF(rect.x(), rect.y() + i * line_h, rect.width(), line_h)
+            if i == max_lines - 1 and len(lines) > max_lines:
+                line = fm.elidedText(line, Qt.TextElideMode.ElideRight, int(rect.width()))
+            p.drawText(line_rect, Qt.AlignmentFlag.AlignTop, line)
 
     def _get_session_style(self, task_class: TaskClass, state: str) -> tuple[QColor, QColor, QColor]:
-        """Tam opak pastel renk paleti."""
         if state == "completed":
-            return QColor("#F3F4F6"), QColor("#E5E7EB"), QColor("#4B5563")
+            return QColor("#F1F5F9"), QColor("#CBD5E1"), QColor("#475569")
         if state == "overdue":
             return QColor("#FEF2F2"), QColor("#FECACA"), QColor("#B91C1C")
 
@@ -505,44 +681,6 @@ class WeekGridCanvas(QWidget):
             return QColor("#F0FDF4"), QColor("#BBF7D0"), QColor("#15803D")
 
         return QColor("#EFF6FF"), QColor("#BFDBFE"), QColor("#1D4ED8")
-
-    def _draw_card(
-        self,
-        p: QPainter,
-        rect: QRectF,
-        title: str,
-        time_str: str,
-        bg_color: QColor,
-        border_color: QColor,
-        text_color: QColor
-    ) -> None:
-        p.setBrush(bg_color)
-        p.setPen(QPen(border_color, 1))
-        p.drawRoundedRect(rect, EVENT_CORNER_RADIUS, EVENT_CORNER_RADIUS)
-
-        p.setPen(text_color)
-        title_font = QFont(self.font())
-        title_font.setPointSize(9)
-        title_font.setWeight(QFont.Weight.DemiBold)
-        p.setFont(title_font)
-
-        pad = rect.adjusted(8, 6, -6, -6)
-        p.drawText(
-            pad,
-            Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
-            title
-        )
-
-        if rect.height() > 36:
-            sub_font = QFont(self.font())
-            sub_font.setPointSize(8)
-            p.setFont(sub_font)
-            time_rect = QRectF(pad.x(), pad.y() + 15, pad.width(), pad.height() - 15)
-            p.drawText(
-                time_rect,
-                Qt.AlignmentFlag.AlignTop,
-                time_str
-            )
 
     def _draw_current_time(self, p: QPainter, col_w: float) -> None:
         if not (self.week_start <= self.now.date() <= self.week_start + timedelta(days=6)):
@@ -591,11 +729,15 @@ class WeekGridCanvas(QWidget):
             les = it.lesson
             tip = f"<b>{les.subject_name}</b><br>Haftanın {les.subject_lesson_no}. dersi"
             if les.recorded_topic:
-                tip += f"<br>Konu: {les.recorded_topic}"
+                tip += f"<br><b>İşlenen Konu:</b> {les.recorded_topic}"
+            else:
+                tip += "<br><i>Konuyu girmek için tıklayın</i>"
             self.setToolTip(tip)
+
 
 class CalendarView(QWidget):
     """Görseldeki üst bar ve ferah takvim konteyneri."""
+
     plan_changed = Signal()
 
     def __init__(
@@ -607,7 +749,6 @@ class CalendarView(QWidget):
         self.service = service
         self._initialize_week()
 
-        # Çizgilerin widget kenarlarına tam yapışması için 0 margin
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
@@ -624,9 +765,7 @@ class CalendarView(QWidget):
         self.week_start = today - timedelta(days=today.weekday())
 
     def _setup_toolbar(self, root: QVBoxLayout) -> None:
-        """Görseldeki [Week 43] rozeti, Başlık ve [◀ | Bugün | ▶] kontrol barı."""
         top_bar = QHBoxLayout()
-        # Üst bar öğeleri için kenarlardan temiz 16px iç boşluk
         top_bar.setContentsMargins(16, 12, 16, 0)
         top_bar.setSpacing(12)
 
@@ -776,7 +915,7 @@ class CalendarView(QWidget):
         self._update_header_info(end)
         self.header.set_week_start(self.week_start)
         sessions, blocks, lessons = self._load_calendar_data(end)
-        self.grid.set_data(self.week_start, sessions, blocks, lessons)
+        self.grid.set_data(self.week_start, sessions, blocks, lessons, self.service)
 
     def _week_end(self) -> date:
         return self.week_start + timedelta(days=6)
