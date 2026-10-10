@@ -43,6 +43,7 @@ HEADER_CALENDAR_GAP = 30     # Üst araç çubuğu (Header) ile Takvim arasında
 THICK_SUB_LINES = True         # True: Ara kılavuz çizgileri kalın, False: İnce
 DAY_HEADER_WIDGET_HEIGHT = 38           # Gün başlık çubuğu yüksekliği (px)
 TODAY_HIGHLIGHT_ENABLED = False  # Bugünün sütunu hafif gri ile vurgulansın mı?
+DIVIDER_LINE_COLOR = QColor(151, 157, 166)  # Üst ve alt kenar çizgisi rengi:#979da6;
 
 # Çok hafif müsaitlik renkleri (Bugünün sütunu gibi ferah ve pastel)
 AVAIL_PRIMARY_COLOR = QColor(244, 252, 246)      # Çok hafif yumuşak yeşil
@@ -86,7 +87,7 @@ class DayHeaderWidget(QWidget):
         p.fillRect(self.rect(), QColor("#FFFFFF"))
 
         # 2. Üst kenar çizgisi (Kartın en solundan en sağına kadar kesintisiz uzanır)
-        horiz_pen = QPen(HORIZONTAL_LINE_COLOR, HORIZONTAL_LINE_WIDTH)
+        horiz_pen = QPen(DIVIDER_LINE_COLOR, 1)
         p.setPen(horiz_pen)
         p.drawLine(0, 0, self.width(), 0)
 
