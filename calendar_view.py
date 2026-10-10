@@ -726,7 +726,7 @@ class CalendarView(QWidget):
                 background-color: #27272A;
             }
         """)
-        plan_btn.setFixedHeight(today_btn.sizeHint().height() + 12)
+        plan_btn.setFixedHeight(today_btn.sizeHint().height() + 11)
         plan_btn.clicked.connect(self.replan)
         top_bar.addWidget(plan_btn)
 
