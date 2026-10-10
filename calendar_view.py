@@ -92,7 +92,7 @@ class DayHeaderWidget(QWidget):
         p.fillRect(self.rect(), QColor("#FFFFFF"))
 
         # 2. Üst kenar çizgisi (Kartın en solundan en sağına kadar kesintisiz uzanır)
-        horiz_pen = QPen(DIVIDER_LINE_COLOR, 1)
+        horiz_pen = QPen(HORIZONTAL_LINE_COLOR, 2)
         p.setPen(horiz_pen)
         p.drawLine(0, 0, self.width(), 0)
 
