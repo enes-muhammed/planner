@@ -55,7 +55,7 @@ class MainWindow(QMainWindow):
         self.main_stack.setStyleSheet("""
             QStackedWidget {
                 background-color: #FFFFFF;
-                border: 1px solid #E5E7EB;
+                border: 1px solid #D7DAE0;
                 border-radius: 10px;
                 padding: 0px;
             }""")
