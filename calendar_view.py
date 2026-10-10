@@ -25,21 +25,26 @@ from ui_common import (
 # ⚙️ TAKVİM YAPILANDIRMA DEĞİŞKENLERİ (İstediğiniz gibi özelleştirebilirsiniz)
 # ==============================================================================
 HOUR_HEIGHT = 130              # 60 dakikanın piksel yüksekliği (Büyük ve ferah)
-INTERVAL_GRID_ENABLED = False  # True: Kılavuz çizgileri görünsün, False: Sadece saat çizgileri
+INTERVAL_GRID_ENABLED = True   # True: Kılavuz çizgileri görünsün, False: Sadece saat çizgileri
 GRID_INTERVAL_MINUTES = 30     # Kılavuz çizgisi sıklığı (dk cinsinden: 15, 30, 60 vb.)
-EVENT_PADDING_H = 6            # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
+
+EVENT_PADDING_H = 7            # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
 EVENT_PADDING_V = 6            # Event kutusunun alt ve üst saat çizgilerine mesafesi (px)
 EVENT_CORNER_RADIUS = 7        # Event kutularının köşe yumuşatması (border-radius)
+
 GUTTER_WIDTH = 72              # Sol saat sütunu genişliği (px)
-GUTTER_COLOR = QColor(243, 244, 246)  # Sol saat sütunu arka plan rengi: #F3F4F6
+GUTTER_COLOR = QColor(250, 250, 250)  # Sol saat sütunu arka plan rengi: #FAFAFA
+
 START_HOUR = 0                 # Takvim başlangıç saati
 END_HOUR = 24                  # Takvim bitiş saati
-CALENDAR_BOTTOM_PADDING = 12   # 24:00 çizgisinin altındaki rahatlatıcı boşluk (px)
+CALENDAR_BOTTOM_PADDING = 10   # 24:00 çizgisinin altındaki rahatlatıcı boşluk (px)
+
 VERTICAL_LINE_WIDTH = 1        # Dikey gün ayırıcı çizgi kalınlığı (px)
 HORIZONTAL_LINE_WIDTH = 1      # Yatay saat çizgisi kalınlığı (px)
 VERTICAL_LINE_COLOR = QColor(215, 217, 222)    # Dikey gün ayırıcı çizgi rengi: #D7D9DE
 HORIZONTAL_LINE_COLOR = QColor(215, 217, 222)  # Yatay saat ve kılavuz çizgisi rengi: #D7D9DE
-HEADER_CALENDAR_GAP = 30     # Üst araç çubuğu (Header) ile Takvim arasındaki boşluk (px)
+
+HEADER_CALENDAR_GAP = 24     # Üst araç çubuğu (Header) ile Takvim arasındaki boşluk (px)
 THICK_SUB_LINES = True         # True: Ara kılavuz çizgileri kalın, False: İnce
 DAY_HEADER_WIDGET_HEIGHT = 38           # Gün başlık çubuğu yüksekliği (px)
 TODAY_HIGHLIGHT_ENABLED = False  # Bugünün sütunu hafif gri ile vurgulansın mı?
@@ -92,6 +97,8 @@ class DayHeaderWidget(QWidget):
         p.drawLine(0, 0, self.width(), 0)
 
         # 3. Alt kenar çizgisi (Day Header ile Canvas arasını kart boyunca ikiye böler)
+        horiz_pen = QPen(HORIZONTAL_LINE_COLOR, 1)
+        p.setPen(horiz_pen)
         p.drawLine(0, self.height() - 1, self.width(), self.height() - 1)
 
         # 4. Gün başlıkları ve dikey ayırıcılar
