@@ -50,16 +50,15 @@ class MainWindow(QMainWindow):
         # 2. Katman: Arkaplanla Birebir Aynı Şeffaf Genişletilmiş Sidebar
         self.expanded_sidebar = ExpandedSidebar(self.service, self)
 
-        # 3. Katman: Sağdaki Büyük Beyaz Kart (Modern Content Card)
+        # 3. Katman: Sağdaki Büyük Beyaz Kart (Çizgilerin sınıra dayanabilmesi için padding: 0px)
         self.main_stack = QStackedWidget()
         self.main_stack.setStyleSheet("""
             QStackedWidget {
                 background-color: #FFFFFF;
                 border: 1px solid #979da6;
                 border-radius: 10px;
-                padding: 10px;
-            }
-        """)
+                padding: 0px;
+            }""")
 
         # İç Görünümler
         self.calendar_view = CalendarView(self.service)
@@ -73,7 +72,7 @@ class MainWindow(QMainWindow):
     def _setup_layout(self) -> None:
         central = QWidget()
         layout = QHBoxLayout(central)
-        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setContentsMargins(3, 3, 3, 3)
         layout.setSpacing(6)
 
         layout.addWidget(self.nav_rail)
@@ -93,6 +92,11 @@ class MainWindow(QMainWindow):
         self.expanded_sidebar.subject_selected.connect(self.subjects_view.select_subject)
         self.expanded_sidebar.subject_add_requested.connect(self._add_subject)
         self.expanded_sidebar.task_filter_selected.connect(self.tasks_view.set_filter)
+
+        # Ders güncellendiğinde sidebar'ı da tazele
+        self.subjects_view.subject_changed.connect(
+            lambda: self.expanded_sidebar.update_view(1, self.subjects_view.current_sid)
+        )
 
         # Takvim planı değişince görevleri tazele
         self.calendar_view.plan_changed.connect(self.tasks_view.refresh)

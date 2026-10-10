@@ -11,6 +11,8 @@ from PySide6.QtWidgets import (
 
 from engine import PlannerService
 
+SIDEBAR_BUTTON_RADIUS = 5
+
 
 def load_icon_or_fallback(icon_name: str, fallback_text: str, size: int = 20) -> QIcon:
     """assets/ klasöründe ikon arar, yoksa şık bir canvas çizimi üretir."""
@@ -46,7 +48,7 @@ class NavRailButton(QPushButton):
             QPushButton {
                 background: transparent;
                 border: none;
-                border-radius: 12px;
+                border-radius: 5px;
             }
             QPushButton:hover {
                 background-color: #27282D;
@@ -65,7 +67,7 @@ class LeftNavRail(QFrame):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setFixedWidth(64)
+        self.setFixedWidth(80)
         self.setStyleSheet("""
             QFrame {
                 background-color: #17181C;
@@ -74,7 +76,7 @@ class LeftNavRail(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 16, 10, 10)
+        layout.setContentsMargins(10, 16, 10, 16)
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
