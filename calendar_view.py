@@ -4,9 +4,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QByteArray, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtSvg import QSvgRenderer
 from PySide6.QtWidgets import (
     QDialog, QFrame, QHBoxLayout, QLabel, QMessageBox,
     QPushButton, QScrollArea, QVBoxLayout, QWidget
@@ -21,9 +23,6 @@ from ui_common import (
     MONTHS, TAB_CONTENT_MARGIN_BOTTOM, TAB_CONTENT_MARGIN_H,
     TAB_CONTENT_MARGIN_TOP, WEEKDAYS, fmt_date, show_error
 )
-from PySide6.QtSvg import QSvgRenderer
-from pathlib import Path
-
 
 # ==============================================================================
 # ⚙️ TAKVİM YAPILANDIRMA DEĞİŞKENLERİ (İstediğiniz gibi özelleştirebilirsiniz)
@@ -32,9 +31,9 @@ HOUR_HEIGHT = 130              # 60 dakikanın piksel yüksekliği (Büyük ve f
 INTERVAL_GRID_ENABLED = True   # True: Kılavuz çizgileri görünsün, False: Sadece saat çizgileri
 GRID_INTERVAL_MINUTES = 30     # Kılavuz çizgisi sıklığı (dk cinsinden: 15, 30, 60 vb.)
 
-EVENT_PADDING_H = 7            # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
+EVENT_PADDING_H = 6           # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
 EVENT_PADDING_V = 6            # Event kutusunun alt ve üst saat çizgilerine mesafesi (px)
-EVENT_CORNER_RADIUS = 7        # Event kutularının köşe yumuşatması (border-radius)
+EVENT_CORNER_RADIUS = 5        # Event kutularının köşe yumuşatması (border-radius)
 
 GUTTER_WIDTH = 72              # Sol saat sütunu genişliği (px)
 GUTTER_COLOR = QColor(250, 250, 250)  # Sol saat sütunu arka plan rengi: #FAFAFA
@@ -62,6 +61,80 @@ AVAIL_RESERVE_COLOR = QColor(255, 251, 240)      # Çok hafif yumuşak sarı
 AVAIL_UNAVAILABLE_COLOR = QColor(247, 248, 250)  # Çok hafif nötr gri
 
 WeekdayNames = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"]
+
+# ==============================================================================
+# 🎨 DERSLER İÇİN SAKİN VE SOLUK PALET (Muted Nordic / Paper Shades)
+# ==============================================================================
+LESSON_PALETTES = [
+    # (zemin rengi, çerçeve rengi, başlık rengi, konu rengi)
+    (QColor("#F3F5F8"), QColor("#CBD5E1"), QColor("#334155"), QColor("#64748B")),  # Slate Fog (Muted Gri-Mavi)
+    (QColor("#F2F6F4"), QColor("#CCDCD2"), QColor("#2D4A3E"), QColor("#5A7367")),  # Sage (Muted Adaçayı)
+    (QColor("#F7F5F1"), QColor("#E0DDD3"), QColor("#4A4438"), QColor("#7A7365")),  # Sand (Muted Keten / Kum)
+    (QColor("#F4F3F8"), QColor("#D6D5E5"), QColor("#3D3B54"), QColor("#6D6A87")),  # Lavender Mist (Muted Lavanta)
+    (QColor("#F7F2F3"), QColor("#E3D5D7"), QColor("#523C40"), QColor("#82686C")),  # Dusty Rose (Muted Gül Kurusu)
+    (QColor("#F1F6F8"), QColor("#C9DCE2"), QColor("#26444E"), QColor("#4F727D")),  # Glacier (Muted Buz Mavisi)
+    (QColor("#F5F6F1"), QColor("#D5DCB8"), QColor("#3F472B"), QColor("#697350")),  # Olive Mist (Muted Zeytin)
+    (QColor("#F6F4F1"), QColor("#DED7CE"), QColor("#484137"), QColor("#756C60")),  # Warm Stone (Muted Sıcak Taş)
+]
+
+
+class CalendarIconManager:
+    """Takvim kartları için SVG ikon yöneticisi (Assets klasöründen okur, yoksa vektör fallback kullanır)."""
+
+    def __init__(self, assets_dir: Path) -> None:
+        self.assets_dir = assets_dir
+        self.renderers: dict[str, QSvgRenderer] = {}
+        self._load_icons()
+
+    def _load_icons(self) -> None:
+        icon_definitions = {
+            "repeat": (
+                "repeat.svg",
+                b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#6D28D9" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">'
+                b'<path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>'
+                b'<path d="M3 3v5h5"/>'
+                b'<path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>'
+                b'<path d="M16 16h5v5"/>'
+                b'</svg>'
+            ),
+            "deadline": (
+                "deadline.svg",
+                b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">'
+                b'<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>'
+                b'<line x1="4" y1="22" x2="4" y2="15"/>'
+                b'</svg>'
+            ),
+            "recurring": (
+                "recurring.svg",
+                b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#15803D" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round">'
+                b'<polyline points="23 4 23 10 17 10"/>'
+                b'<polyline points="1 20 1 14 7 14"/>'
+                b'<path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>'
+                b'</svg>'
+            ),
+            "lesson": (
+                "lesson.svg",
+                b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#475569" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'
+                b'<path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>'
+                b'<path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>'
+                b'</svg>'
+            ),
+        }
+
+        for key, (filename, fallback_bytes) in icon_definitions.items():
+            file_path = self.assets_dir / filename
+            if file_path.exists():
+                renderer = QSvgRenderer(str(file_path))
+            else:
+                renderer = QSvgRenderer(QByteArray(fallback_bytes))
+            self.renderers[key] = renderer
+
+    def render(self, key: str, p: QPainter, rect: QRectF) -> bool:
+        renderer = self.renderers.get(key)
+        if renderer and renderer.isValid():
+            renderer.render(p, rect)
+            return True
+        return False
 
 
 @dataclass
@@ -210,7 +283,7 @@ class DayHeaderWidget(QWidget):
 
 
 class WeekGridCanvas(QWidget):
-    """Zaman ızgarasını ve event bloklarını çizen kanvas."""
+    """Zaman ızgarasını ve zengin içerikli modern event bloklarını çizen kanvas."""
 
     sessionClicked = Signal(int)
     schoolLessonClicked = Signal(object)
@@ -223,8 +296,7 @@ class WeekGridCanvas(QWidget):
         self._initialize_data()
         self._initialize_interaction()
 
-        self.repeat_icon = QSvgRenderer(
-            str(Path(__file__).parent / "assets" / "repeat.svg"))
+        self.icon_manager = CalendarIconManager(Path(__file__).parent / "assets")
 
     def _initialize_data(self) -> None:
         self.week_start = date.today()
@@ -275,6 +347,10 @@ class WeekGridCanvas(QWidget):
             if s.color:
                 return QColor(s.color)
         return QColor.fromHsv((subject_id * 65) % 360, 160, 195)
+
+    def _get_lesson_style(self, subject_id: int) -> tuple[QColor, QColor, QColor, QColor]:
+        """Dersler için sakin, soluk ve şık pastel palet döndürür."""
+        return LESSON_PALETTES[subject_id % len(LESSON_PALETTES)]
 
     def _get_session_subject(self, sv: SessionView) -> tuple[str, QColor] | None:
         if not self.service:
@@ -498,18 +574,15 @@ class WeekGridCanvas(QWidget):
                 self._draw_session_card(p, rect, it.session)
 
     def _draw_lesson_card(self, p: QPainter, rect: QRectF, lesson: SchoolLesson) -> None:
-        """Ders programı bloğu: Eski renkli pastel zemin, üst çizgi ve nokta yok; saat yok; konu varsa yazılır."""
-        h = (lesson.subject_id * 65) % 360
-        bg_color = QColor.fromHsv(h, 18, 253)
-        border_color = QColor.fromHsv(h, 60, 230)
-        text_color = QColor.fromHsv(h, 200, 140)
+        """Ders programı bloğu: Sakin & soluk İskandinav stili zemin; çizgisiz ve noktasız; ders ikonuyla."""
+        bg_color, border_color, text_color, topic_color = self._get_lesson_style(lesson.subject_id)
 
-        # 1. Zemin ve çerçeve
+        # 1. Sakin, soluk pastel zemin ve zarif 1px çerçeve
         p.setBrush(bg_color)
         p.setPen(QPen(border_color, 1))
         p.drawRoundedRect(rect, EVENT_CORNER_RADIUS, EVENT_CORNER_RADIUS)
 
-        # 2. Ders Adı
+        # 2. İkon ve Başlık Alanı
         title_font = QFont(self.font())
         title_font.setPointSize(9)
         title_font.setWeight(QFont.Weight.DemiBold)
@@ -517,25 +590,35 @@ class WeekGridCanvas(QWidget):
         p.setPen(text_color)
 
         pad = rect.adjusted(8, 7, -8, -6)
-        fm = QFontMetrics(title_font)
-        title_text = fm.elidedText(lesson.subject_name, Qt.TextElideMode.ElideRight, int(pad.width()))
-        p.drawText(pad, Qt.AlignmentFlag.AlignTop, title_text)
 
-        # 3. Konu varsa hafifçe yaz, yoksa hiçbir şey yapma
+        # Ders ikonu (assets/lesson.svg veya vektörel kitap)
+        icon_size = 11.0
+        icon_gap = 5.0
+        icon_rect = QRectF(pad.x(), pad.y() + 2, icon_size, icon_size)
+        has_icon = self.icon_manager.render("lesson", p, icon_rect)
+
+        title_x = pad.x() + (icon_size + icon_gap if has_icon else 0)
+        title_w = max(0.0, pad.width() - (icon_size + icon_gap if has_icon else 0))
+        title_rect = QRectF(title_x, pad.y(), title_w, pad.height())
+
+        fm = QFontMetrics(title_font)
+        title_text = fm.elidedText(lesson.subject_name, Qt.TextElideMode.ElideRight, int(title_rect.width()))
+        p.drawText(title_rect, Qt.AlignmentFlag.AlignTop, title_text)
+
+        # 3. Konu varsa hafifçe yaz, yoksa hiçbir şey yapma (saat yok)
         if lesson.recorded_topic and rect.height() > 32:
             topic_font = QFont(self.font())
             topic_font.setPointSize(8)
-            topic_color = QColor.fromHsv(h, 150, 160)
             topic_pad = QRectF(rect.x() + 8, pad.y() + 16, rect.width() - 16, rect.height() - 22)
             self._draw_smart_text(p, lesson.recorded_topic, topic_pad, topic_font, topic_color)
 
     def _draw_session_card(self, p: QPainter, rect: QRectF, sv: SessionView) -> None:
-        """Tekrar, rutin ve teslim görevleri bloğu: Üst çizgisiz, bildirim noktası sağ üstte."""
+        """Tekrar, rutin ve teslim görevleri bloğu: Üst çizgisiz, sağ üstte bildirim noktası ve türe özel ikon."""
         s = sv.session
         state = sv.display_state(self.now)
         bg_col, bdr_col, txt_col = self._get_session_style(sv.task_class, state)
 
-        # 1. Zemin ve çerçeve (Üst çizgi tamamen kaldırıldı)
+        # 1. Zemin ve çerçeve (Üst çizgi tamamen yok)
         p.setBrush(bg_col)
         p.setPen(QPen(bdr_col, 1))
         p.drawRoundedRect(rect, EVENT_CORNER_RADIUS, EVENT_CORNER_RADIUS)
@@ -552,13 +635,14 @@ class WeekGridCanvas(QWidget):
         if NOTIFICATION_DOT_ENABLED and dot_color is not None:
             self._draw_notification_dot(p, rect.right() - 10.0, rect.top() + 10.0, dot_color)
 
-        # 3. Başlık ve Tekrar İkonu ("Tekrar:" yazısı yerine ikon kullanılır)
+        # 3. Görev türüne özel ikon ve Başlık Alanı
         p.setPen(txt_col)
         title_font = QFont(self.font())
         title_font.setPointSize(9)
         title_font.setWeight(QFont.Weight.DemiBold)
         p.setFont(title_font)
 
+        # "Tekrar:" / "Manuel Tekrar:" gibi fazlalık yazıları temizle
         clean_title = re.sub(
             r"^(Tekrar|Manuel Tekrar)\s*[:\-–]?\s*", "",
             sv.title, flags=re.IGNORECASE
@@ -568,44 +652,28 @@ class WeekGridCanvas(QWidget):
         right_pad = -18 if (NOTIFICATION_DOT_ENABLED and dot_color is not None) else -8
         pad = rect.adjusted(8, 7, right_pad, -6)
 
-        icon_prefix = "⟳ " if sv.task_class == TaskClass.REVIEW else ""
-        full_title = f"{icon_prefix}{clean_title}"
-
-        # Başlık metni
-        fm = QFontMetrics(title_font)
-
-        # Tekrar ikonu yalnızca REVIEW görevlerinde gösterilir
+        # Görev sınıfına göre uygun SVG ikonunu seç
         if sv.task_class == TaskClass.REVIEW:
-            icon_size = 10  # ⟳ karakterine yakın, küçük boyut
-            icon_gap = 6
-
-            icon_rect = QRectF(
-                pad.x() + 1,
-                pad.y() + 2,
-                icon_size,
-                icon_size
-            )
-
-            if self.repeat_icon.isValid():
-                self.repeat_icon.render(p, icon_rect)
-
-            # Metni ikonun sağına yerleştir
-            text_rect = QRectF(
-                pad.x() + icon_size + icon_gap,
-                pad.y() - 2,
-                max(0, pad.width() - icon_size - icon_gap),
-                pad.height()
-            )
+            icon_key = "repeat"
+        elif sv.task_class == TaskClass.DEADLINE_TASK:
+            icon_key = "deadline"
+        elif sv.task_class == TaskClass.RECURRING_TASK:
+            icon_key = "recurring"
         else:
-            text_rect = pad
+            icon_key = "repeat"
 
-        rendered_title = fm.elidedText(
-            clean_title,
-            Qt.TextElideMode.ElideRight,
-            int(text_rect.width())
-        )
+        icon_size = 11.0
+        icon_gap = 5.0
+        icon_rect = QRectF(pad.x(), pad.y() + 2, icon_size, icon_size)
+        has_icon = self.icon_manager.render(icon_key, p, icon_rect)
 
-        p.drawText(text_rect, Qt.AlignmentFlag.AlignTop, rendered_title)
+        title_x = pad.x() + (icon_size + icon_gap if has_icon else 0)
+        title_w = max(0.0, pad.width() - (icon_size + icon_gap if has_icon else 0))
+        title_rect = QRectF(title_x, pad.y(), title_w, pad.height())
+
+        fm = QFontMetrics(title_font)
+        rendered_title = fm.elidedText(clean_title, Qt.TextElideMode.ElideRight, int(title_rect.width()))
+        p.drawText(title_rect, Qt.AlignmentFlag.AlignTop, rendered_title)
 
         # 4. Alt bilgi: Saat ve aidiyet dersi
         if rect.height() > 38:
@@ -620,12 +688,12 @@ class WeekGridCanvas(QWidget):
                 subj_name, _ = subj_info
                 time_str = f"{time_str} • {subj_name}"
 
-            time_rect = QRectF(rect.x() + 8 + 0, pad.y() + 15, rect.width() - 16, rect.height() - 22)
+            time_rect = QRectF(rect.x() + 8, pad.y() + 16, rect.width() - 16, rect.height() - 22)
             elided_time = QFontMetrics(sub_font).elidedText(time_str, Qt.TextElideMode.ElideRight, int(time_rect.width()))
             p.drawText(time_rect, Qt.AlignmentFlag.AlignTop, elided_time)
 
     def _draw_notification_dot(self, p: QPainter, x: float, y: float, color: QColor) -> None:
-        """Sağ üst köşede bildirim noktası çizer."""
+        """Sağ üst köşede durum bildirim noktası çizer."""
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(color)
         p.drawEllipse(QPointF(x, y), 3.0, 3.0)
@@ -766,7 +834,7 @@ class CalendarView(QWidget):
 
     def _setup_toolbar(self, root: QVBoxLayout) -> None:
         top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(24, 24, 24, 0)
+        top_bar.setContentsMargins(16, 12, 16, 0)
         top_bar.setSpacing(12)
 
         # 1. Sol Rozet (Week 43)

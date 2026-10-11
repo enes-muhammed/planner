@@ -1,6 +1,5 @@
 # CALENDAR
-- repeat gibi görevler ve dersler için de icon
-- derslere farklı ve daha sakin bir stil bul
+
 # GENEL
 - derslerin extended barındaki ui problemini düzelt
 - title barı kaldır ve rounded yap
@@ -16,3 +15,4 @@
 - dersler birden fazla konu işlenebilsin
 - Konu - alt konu sistemi
 - Gerçek lise müfredatı?
+- belli saatlerde saat ve rehber çizgileri gizeleme? (örn okul saatleri)
