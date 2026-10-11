@@ -48,9 +48,9 @@ HORIZONTAL_LINE_WIDTH = 1      # Yatay saat çizgisi kalınlığı (px)
 VERTICAL_LINE_COLOR = QColor(215, 217, 222)    # Dikey gün ayırıcı çizgi rengi: #D7D9DE
 HORIZONTAL_LINE_COLOR = QColor(215, 217, 222)  # Yatay saat ve kılavuz çizgisi rengi: #D7D9DE
 
-HEADER_CALENDAR_GAP = 24       # Üst araç çubuğu (Header) ile Takvim arasındaki boşluk (px)
+HEADER_CALENDAR_GAP = 36       # Üst araç çubuğu (Header) ile Takvim arasındaki boşluk (px)
 THICK_SUB_LINES = True         # True: Ara kılavuz çizgileri kalın, False: İnce
-DAY_HEADER_WIDGET_HEIGHT = 38  # Gün başlık çubuğu yüksekliği (px)
+DAY_HEADER_WIDGET_HEIGHT = 45  # Gün başlık çubuğu yüksekliği (px)
 TODAY_HIGHLIGHT_ENABLED = False  # Bugünün sütunu hafif gri ile vurgulansın mı?
 DIVIDER_LINE_COLOR = QColor(151, 157, 166)  # Üst ve alt kenar çizgisi rengi
 
@@ -766,7 +766,7 @@ class CalendarView(QWidget):
 
     def _setup_toolbar(self, root: QVBoxLayout) -> None:
         top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(16, 12, 16, 0)
+        top_bar.setContentsMargins(24, 24, 24, 0)
         top_bar.setSpacing(12)
 
         # 1. Sol Rozet (Week 43)

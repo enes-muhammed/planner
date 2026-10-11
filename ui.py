@@ -72,8 +72,8 @@ class MainWindow(QMainWindow):
     def _setup_layout(self) -> None:
         central = QWidget()
         layout = QHBoxLayout(central)
-        layout.setContentsMargins(3, 3, 3, 3)
-        layout.setSpacing(6)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(7)
 
         layout.addWidget(self.nav_rail)
         layout.addWidget(self.expanded_sidebar)
