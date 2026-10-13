@@ -1,7 +1,6 @@
 # CALENDAR
 
 # GENEL
-- derslerin extended barındaki ui problemini düzelt
 - title barı kaldır ve rounded yap
 # SIDEBAR
 - FOTODAKININ AYNISI OLANA DEK DURMAK YOK!
@@ -13,6 +12,5 @@
 - derslerde konuya kendi notlarını veya konu anlatım videolarını yükleme (gereksiz olabilir düşünmek lazım)
 - manuel tekrarlra da splittable olsun
 - dersler birden fazla konu işlenebilsin
-- Konu - alt konu sistemi
 - Gerçek lise müfredatı?
 - belli saatlerde saat ve rehber çizgileri gizeleme? (örn okul saatleri)

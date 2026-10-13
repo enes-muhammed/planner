@@ -31,7 +31,7 @@ HOUR_HEIGHT = 130              # 60 dakikanın piksel yüksekliği (Büyük ve f
 INTERVAL_GRID_ENABLED = True   # True: Kılavuz çizgileri görünsün, False: Sadece saat çizgileri
 GRID_INTERVAL_MINUTES = 30     # Kılavuz çizgisi sıklığı (dk cinsinden: 15, 30, 60 vb.)
 
-EVENT_PADDING_H = 6           # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
+EVENT_PADDING_H = 6            # Event kutusunun sağ ve sol gün çizgilerine mesafesi (px)
 EVENT_PADDING_V = 6            # Event kutusunun alt ve üst saat çizgilerine mesafesi (px)
 EVENT_CORNER_RADIUS = 5        # Event kutularının köşe yumuşatması (border-radius)
 
@@ -642,17 +642,14 @@ class WeekGridCanvas(QWidget):
         title_font.setWeight(QFont.Weight.DemiBold)
         p.setFont(title_font)
 
-        # "Tekrar:" / "Manuel Tekrar:" gibi fazlalık yazıları temizle
         clean_title = re.sub(
             r"^(Tekrar|Manuel Tekrar)\s*[:\-–]?\s*", "",
             sv.title, flags=re.IGNORECASE
         ).strip() or sv.title
 
-        # Sağ üstte nokta varsa yazının sağ boşluğunu 18px bırakarak çakışmayı önle
         right_pad = -18 if (NOTIFICATION_DOT_ENABLED and dot_color is not None) else -8
         pad = rect.adjusted(8, 7, right_pad, -6)
 
-        # Görev sınıfına göre uygun SVG ikonunu seç
         if sv.task_class == TaskClass.REVIEW:
             icon_key = "repeat"
         elif sv.task_class == TaskClass.DEADLINE_TASK:
@@ -693,7 +690,6 @@ class WeekGridCanvas(QWidget):
             p.drawText(time_rect, Qt.AlignmentFlag.AlignTop, elided_time)
 
     def _draw_notification_dot(self, p: QPainter, x: float, y: float, color: QColor) -> None:
-        """Sağ üst köşede durum bildirim noktası çizer."""
         p.setPen(Qt.PenStyle.NoPen)
         p.setBrush(color)
         p.drawEllipse(QPointF(x, y), 3.0, 3.0)
@@ -817,8 +813,9 @@ class CalendarView(QWidget):
         self.service = service
         self._initialize_week()
 
+        # Alt iki köşenin kesilmesini önlemek için alttan 8px güvenli kenar boşluğu
         root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
+        root.setContentsMargins(0, 0, 0, 8)
         root.setSpacing(0)
 
         self._setup_toolbar(root)
@@ -941,6 +938,7 @@ class CalendarView(QWidget):
     def _setup_calendar(self, root: QVBoxLayout) -> None:
         cal_container = QFrame()
         cal_container.setFrameShape(QFrame.Shape.NoFrame)
+        cal_container.setStyleSheet("background: transparent; border: none;")
 
         cal_layout = QVBoxLayout(cal_container)
         cal_layout.setContentsMargins(0, 0, 0, 0)
@@ -953,6 +951,7 @@ class CalendarView(QWidget):
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         self.grid = WeekGridCanvas()
         self.grid.sessionClicked.connect(self._open_session)

@@ -220,7 +220,7 @@ class UnitCardWidget(QFrame):
 
         self.setStyleSheet("""
             UnitCardWidget {
-                background-color: #FFFFFF;
+                background-color: #F8FAFC;
                 border: 1px solid #E2E8F0;
                 border-radius: 12px;
             }
@@ -250,36 +250,36 @@ class UnitCardWidget(QFrame):
                 font-size: 11px;
                 font-weight: 800;
                 color: #1E293B;
-                background-color: #F1F5F9;
+                background-color: #FFFFFF;
+                border: 1px solid #E2E8F0;
                 border-radius: 6px;
                 padding: 3px 8px;
-                border: none;
             """)
             head.addWidget(lbl_order)
 
             # Ünite Adı
             lbl_name = QLabel(self.unit.name)
-            lbl_name.setStyleSheet("font-size: 16px; font-weight: 700; color: #0F172A; border: none;")
+            lbl_name.setStyleSheet("font-size: 16px; font-weight: 700; color: #0F172A; border: none; background: transparent;")
             head.addWidget(lbl_name)
 
             # Tarih Aralığı (Varsa)
             if self.unit.start_date:
                 end_str = f" – {fmt_date(self.unit.end_date)}" if self.unit.end_date else "'de Başlandı"
                 lbl_dates = QLabel(f"📅 {fmt_date(self.unit.start_date)}{end_str}")
-                lbl_dates.setStyleSheet("font-size: 11px; font-weight: 600; color: #64748B; border: none;")
+                lbl_dates.setStyleSheet("font-size: 11px; font-weight: 600; color: #64748B; border: none; background: transparent;")
                 head.addWidget(lbl_dates)
 
             head.addStretch(1)
 
             # Özet Metrikler
             lbl_stats = QLabel(f"{len(self.memory_items)} Alt Konu  •  {len(self.events)} Ders Saati")
-            lbl_stats.setStyleSheet("font-size: 11px; font-weight: 500; color: #64748B; border: none;")
+            lbl_stats.setStyleSheet("font-size: 11px; font-weight: 500; color: #64748B; border: none; background: transparent;")
             head.addWidget(lbl_stats)
 
             # Düzenle Butonu
             btn_edit = QPushButton("Düzenle")
             btn_edit.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn_edit.setStyleSheet("padding: 4px 10px; font-size: 11px;")
+            btn_edit.setStyleSheet("padding: 4px 10px; font-size: 11px; background-color: #FFFFFF; border: 1px solid #E2E8F0;")
             btn_edit.clicked.connect(lambda: self.edit_unit_requested.emit(self.unit))
             head.addWidget(btn_edit)
 
@@ -306,7 +306,7 @@ class UnitCardWidget(QFrame):
         else:
             # Ünitesiz / Genel Konular
             lbl_name = QLabel("📌 Genel / Henüz Üniteye Atanmamış Konular")
-            lbl_name.setStyleSheet("font-size: 15px; font-weight: 700; color: #475569; border: none;")
+            lbl_name.setStyleSheet("font-size: 15px; font-weight: 700; color: #475569; border: none; background: transparent;")
             head.addWidget(lbl_name)
             head.addStretch(1)
 
@@ -315,13 +315,13 @@ class UnitCardWidget(QFrame):
         # Ayırıcı ince çizgi
         div = QFrame()
         div.setFrameShape(QFrame.Shape.HLine)
-        div.setStyleSheet("color: #F1F5F9;")
+        div.setStyleSheet("color: #E2E8F0;")
         layout.addWidget(div)
 
     def _build_topics_section(self, layout: QVBoxLayout) -> None:
         sec_bar = QHBoxLayout()
         lbl_sec = QLabel("🧠 Alt Konular & Hafıza / Tekrar Durumu")
-        lbl_sec.setStyleSheet("font-size: 13px; font-weight: 700; color: #334155; border: none;")
+        lbl_sec.setStyleSheet("font-size: 13px; font-weight: 700; color: #334155; border: none; background: transparent;")
         sec_bar.addWidget(lbl_sec)
         sec_bar.addStretch(1)
 
@@ -348,7 +348,7 @@ class UnitCardWidget(QFrame):
 
         if not self.memory_items:
             lbl_empty = QLabel("Bu ünitede henüz kayıtlı alt konu bulunmuyor.")
-            lbl_empty.setStyleSheet("font-size: 11px; color: #94A3B8; font-style: italic; border: none;")
+            lbl_empty.setStyleSheet("font-size: 11px; color: #94A3B8; font-style: italic; border: none; background: transparent;")
             layout.addWidget(lbl_empty)
             return
 
@@ -377,12 +377,12 @@ class UnitCardWidget(QFrame):
     def _build_events_section(self, layout: QVBoxLayout) -> None:
         layout.addSpacing(4)
         lbl_sec = QLabel("🏫 Okulda İşlenme Geçmişi (Ders Akışı)")
-        lbl_sec.setStyleSheet("font-size: 13px; font-weight: 700; color: #334155; border: none;")
+        lbl_sec.setStyleSheet("font-size: 13px; font-weight: 700; color: #334155; border: none; background: transparent;")
         layout.addWidget(lbl_sec)
 
         if not self.events:
             lbl_empty = QLabel("Bu ünite için henüz okul dersi kaydı girilmedi.")
-            lbl_empty.setStyleSheet("font-size: 11px; color: #94A3B8; font-style: italic; border: none;")
+            lbl_empty.setStyleSheet("font-size: 11px; color: #94A3B8; font-style: italic; border: none; background: transparent;")
             layout.addWidget(lbl_empty)
             return
 
@@ -421,28 +421,29 @@ class SubjectsView(QWidget):
         self.service = service
         self._current_sid: int | None = None
 
+        # 4 köşenin kesilmesini önlemek için alttan 8px güvenli kenar boşluğu ve şeffaf zemin
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setContentsMargins(0, 0, 0, 8)
         main_layout.setSpacing(0)
 
-        # 1. Üst Hero Banner (Ders Adı, İstatistikler ve Aksiyon Butonları)
+        # 1. Üst Hero Banner (Köşeleri örtmemesi için şeffaf zemin)
         self.hero_frame = QFrame()
+        self.hero_frame.setObjectName("heroFrame")
         self.hero_frame.setStyleSheet("""
-            QFrame {
-                background-color: #FFFFFF;
+            QFrame#heroFrame {
+                background-color: transparent;
                 border-bottom: 1px solid #E2E8F0;
-                padding: 16px 20px;
             }
         """)
         hero_layout = QHBoxLayout(self.hero_frame)
-        hero_layout.setContentsMargins(20, 16, 20, 16)
+        hero_layout.setContentsMargins(20, 14, 20, 14)
 
         title_col = QVBoxLayout()
         title_col.setSpacing(3)
         self.title = QLabel("Bir ders seçin")
-        self.title.setStyleSheet("font-size: 22px; font-weight: 800; color: #0F172A; border: none;")
+        self.title.setStyleSheet("font-size: 22px; font-weight: 800; color: #0F172A; border: none; background: transparent;")
         self.lbl_subtitle = QLabel("Sol menüden bir ders seçerek üniteleri ve öğrenme geçmişini inceleyin")
-        self.lbl_subtitle.setStyleSheet("font-size: 12px; font-weight: 500; color: #64748B; border: none;")
+        self.lbl_subtitle.setStyleSheet("font-size: 12px; font-weight: 500; color: #64748B; border: none; background: transparent;")
         title_col.addWidget(self.title)
         title_col.addWidget(self.lbl_subtitle)
         hero_layout.addLayout(title_col)
@@ -481,16 +482,25 @@ class SubjectsView(QWidget):
 
         main_layout.addWidget(self.hero_frame)
 
-        # 2. Kaydırılabilir İçerik Alanı (Ünite Kartları Akışı)
+        # 2. Kaydırılabilir İçerik Alanı (Şeffaf zemin ile köşe korumalı)
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setStyleSheet("QScrollArea { border: none; background-color: #F8F9FA; }")
+        self.scroll_area.setStyleSheet("""
+            QScrollArea {
+                border: none;
+                background-color: transparent;
+            }
+            QScrollArea > QWidget > QWidget {
+                background-color: transparent;
+            }
+        """)
 
         self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background-color: transparent;")
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setContentsMargins(24, 20, 24, 24)
-        self.content_layout.setSpacing(20)
+        self.content_layout.setContentsMargins(20, 16, 20, 16)
+        self.content_layout.setSpacing(16)
 
         self.scroll_area.setWidget(self.content_widget)
         main_layout.addWidget(self.scroll_area, 1)
@@ -535,14 +545,14 @@ class SubjectsView(QWidget):
 
         if not units and not events and not memory_items:
             empty_box = QFrame()
-            empty_box.setStyleSheet("background-color: #FFFFFF; border: 1px dashed #CBD5E1; border-radius: 12px; padding: 30px;")
+            empty_box.setStyleSheet("background-color: #F8FAFC; border: 1px dashed #CBD5E1; border-radius: 12px; padding: 30px;")
             box_layout = QVBoxLayout(empty_box)
             lbl_empty = QLabel(
                 "Bu derse henüz bir ünite veya konu eklenmemiş.\n"
                 "Yukarıdaki <b>'+ Yeni Ünite Ekle'</b> butonu ile müfredatınızı planlamaya başlayabilirsiniz."
             )
             lbl_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl_empty.setStyleSheet("font-size: 13px; color: #64748B; border: none;")
+            lbl_empty.setStyleSheet("font-size: 13px; color: #64748B; border: none; background: transparent;")
             box_layout.addWidget(lbl_empty)
             self.content_layout.addWidget(empty_box)
             return
