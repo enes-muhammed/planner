@@ -288,10 +288,22 @@ class Subject:
 
 
 @dataclass
+class Unit:
+    name: str
+    subject_id: int
+    id: int | None = None
+    order_no: int = 1
+    start_date: date | None = None
+    end_date: date | None = None
+    created_at: datetime = field(default_factory=_now)
+
+
+@dataclass
 class Topic:
     name: str
     subject_id: int
     id: int | None = None
+    unit_id: int | None = None
     notes: str = ""
     created_at: datetime = field(default_factory=_now)
 
@@ -788,16 +800,6 @@ class TaskEngine:
 # =========================================================================== #
 # D. SCHEDULER  ("when in the student's real life should it happen?")
 # =========================================================================== #
-#
-# Deterministic, two stages:
-#   A. HARD constraints  - unavailable time, completed/busy time, past time, windows of
-#                          deadlines / recurring occurrences, minimum session, contiguity,
-#                          daily review cap, which slot kinds an item may use.
-#   B. SOFT optimisation - items are ordered by a composite score (priority, deadline
-#                          pressure, review urgency, exam proximity, routine, delay cost);
-#                          each chunk is then put where (slot cost + time cost + load
-#                          balance + split penalty) per minute is lowest.
-# Re-planning = running the same function again on the updated state.
 
 @dataclass(frozen=True)
 class BusyInterval:
@@ -1353,12 +1355,16 @@ SUBJECT_COLORS = ["#4F7CAC", "#C8553D", "#588157", "#9C6ADE", "#D9A441", "#2A9D8
 class LearningEventView:
     event: LearningEvent
     topic_name: str
+    unit_id: int | None = None
+    unit_name: str | None = None
 
 
 @dataclass
 class MemoryView:
     topic_name: str
     state: MemoryState
+    unit_id: int | None = None
+    unit_name: str | None = None
 
 
 @dataclass
@@ -1433,18 +1439,74 @@ class PlannerService:
             self.db.delete_review_tasks_for_topics(topic_ids)
             self.db.delete("subjects", {"id": subject_id})
 
-    # --------------------------------------------------------------- topics
-    def list_topics(self, subject_id: int) -> list[Topic]:
-        return [row_to_model(Topic, r) for r in self.db.select("topics", {"subject_id": subject_id}, ["name"])]
+    # ---------------------------------------------------------------- units
+    def list_units(self, subject_id: int) -> list[Unit]:
+        rows = self.db.units_for_subject(subject_id)
+        return [row_to_model(Unit, r) for r in rows]
 
-    def get_or_create_topic(self, subject_id: int, name: str) -> Topic:
+    def add_unit(self, subject_id: int, name: str, order_no: int | None = None,
+                 start_date: date | None = None, end_date: date | None = None) -> Unit:
+        name = name.strip()
+        if not name:
+            raise ValueError("ünite adı boş olamaz")
+        if order_no is None:
+            existing = self.list_units(subject_id)
+            order_no = (max((u.order_no for u in existing), default=0) + 1)
+        unit = Unit(name=name, subject_id=subject_id, order_no=order_no,
+                    start_date=start_date, end_date=end_date)
+        unit.id = self.db.insert("units", model_to_row(unit))
+        return unit
+
+    def get_or_create_unit(self, subject_id: int, name: str) -> Unit:
+        name = name.strip()
+        if not name:
+            raise ValueError("ünite adı boş olamaz")
+        rows = self.db.select("units", {"subject_id": subject_id, "name": name})
+        if rows:
+            return row_to_model(Unit, rows[0])
+        return self.add_unit(subject_id, name)
+
+    def rename_unit(self, unit_id: int, name: str) -> None:
+        name = name.strip()
+        if not name:
+            raise ValueError("ünite adı boş olamaz")
+        self.db.update("units", unit_id, {"name": name})
+
+    def update_unit(self, unit_id: int, **kwargs: Any) -> None:
+        vals: dict[str, Any] = {}
+        if "name" in kwargs and kwargs["name"] is not None:
+            n = str(kwargs["name"]).strip()
+            if not n:
+                raise ValueError("ünite adı boş olamaz")
+            vals["name"] = n
+        for k in ("order_no", "start_date", "end_date"):
+            if k in kwargs:
+                vals[k] = _encode(kwargs[k])
+        if vals:
+            self.db.update("units", unit_id, vals)
+
+    def delete_unit(self, unit_id: int) -> None:
+        self.db.delete("units", {"id": unit_id})
+
+    # --------------------------------------------------------------- topics
+    def list_topics(self, subject_id: int, unit_id: int | None = None) -> list[Topic]:
+        where: dict[str, Any] = {"subject_id": subject_id}
+        if unit_id is not None:
+            where["unit_id"] = unit_id
+        return [row_to_model(Topic, r) for r in self.db.select("topics", where, ["name"])]
+
+    def get_or_create_topic(self, subject_id: int, name: str, unit_id: int | None = None) -> Topic:
         name = name.strip()
         if not name:
             raise ValueError("konu adı boş olamaz")
         rows = self.db.select("topics", {"subject_id": subject_id, "name": name})
         if rows:
-            return row_to_model(Topic, rows[0])
-        topic = Topic(name=name, subject_id=subject_id)
+            t = row_to_model(Topic, rows[0])
+            if unit_id is not None and t.unit_id != unit_id:
+                self.db.update("topics", t.id, {"unit_id": unit_id})
+                t.unit_id = unit_id
+            return t
+        topic = Topic(name=name, subject_id=subject_id, unit_id=unit_id)
         topic.id = self.db.insert("topics", model_to_row(topic))
         return topic
 
@@ -1459,17 +1521,21 @@ class PlannerService:
 
     # ------------------------------------------------------ learning events
     def list_learning_events(self, subject_id: int) -> list[LearningEventView]:
-        return [LearningEventView(row_to_model(LearningEvent, r), r["topic_name"])
+        return [LearningEventView(
+                    row_to_model(LearningEvent, r),
+                    r["topic_name"],
+                    r.get("unit_id"),
+                    r.get("unit_name"))
                 for r in self.db.learning_events_for_subject(subject_id)]
 
     def add_learning_event(self, subject_id: int, event_date: date, topic_name: str,
                            period_start: int | None = None, period_end: int | None = None,
-                           notes: str = "") -> LearningEvent:
-        """Subject -> Topic -> LearningEvent -> MemoryState -> automatic Review task."""
+                           notes: str = "", unit_id: int | None = None) -> LearningEvent:
+        """Subject -> Unit / Topic -> LearningEvent -> MemoryState -> automatic Review task."""
         if period_start is not None and period_end is not None and period_end < period_start:
             raise ValueError("ders saati bitişi başlangıçtan önce olamaz")
         with self.db.transaction():
-            topic = self.get_or_create_topic(subject_id, topic_name)
+            topic = self.get_or_create_topic(subject_id, topic_name, unit_id=unit_id)
             assert topic.id is not None
             ev = LearningEvent(topic_id=topic.id, event_date=event_date, period_start=period_start,
                                period_end=period_end, notes=notes.strip())
@@ -1485,7 +1551,11 @@ class PlannerService:
         self.db.delete("learning_events", {"id": event_id})
 
     def list_memory(self, subject_id: int) -> list[MemoryView]:
-        return [MemoryView(r["topic_name"], row_to_model(MemoryState, r))
+        return [MemoryView(
+                    r["topic_name"],
+                    row_to_model(MemoryState, r),
+                    r.get("unit_id"),
+                    r.get("unit_name"))
                 for r in self.db.memory_states_for_subject(subject_id)]
 
     # ----------------------------------------------------------------- tasks

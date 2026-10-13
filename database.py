@@ -188,7 +188,24 @@ CREATE TABLE settings (
 );
 """
 
-MIGRATIONS: list[str] = [_V1]  # index + 1 == schema version
+_V2 = """
+CREATE TABLE units (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    subject_id  INTEGER NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    order_no    INTEGER NOT NULL DEFAULT 1,
+    start_date  TEXT,
+    end_date    TEXT,
+    created_at  TEXT NOT NULL,
+    UNIQUE (subject_id, name)
+);
+CREATE INDEX idx_units_subject ON units(subject_id);
+
+ALTER TABLE topics ADD COLUMN unit_id INTEGER REFERENCES units(id) ON DELETE SET NULL;
+CREATE INDEX idx_topics_unit ON topics(unit_id);
+"""
+
+MIGRATIONS: list[str] = [_V1, _V2]  # index + 1 == schema version
 SCHEMA_VERSION = len(MIGRATIONS)
 
 # link tables: name -> owner column
@@ -355,17 +372,29 @@ class Database:
         return [dict(r) for r in self._conn.execute(sql, [*params, start, end]).fetchall()]
 
     # ------------------------------------------------------ specific queries
+    def units_for_subject(self, subject_id: int) -> list[dict[str, Any]]:
+        sql = """SELECT * FROM units
+                 WHERE subject_id = ?
+                 ORDER BY order_no, COALESCE(start_date, ''), id"""
+        return [dict(r) for r in self._conn.execute(sql, [subject_id]).fetchall()]
+
     def learning_events_for_subject(self, subject_id: int) -> list[dict[str, Any]]:
-        sql = """SELECT e.*, t.name AS topic_name, t.subject_id AS subject_id
-                 FROM learning_events e JOIN topics t ON t.id = e.topic_id
+        sql = """SELECT e.*, t.name AS topic_name, t.subject_id AS subject_id,
+                        t.unit_id AS unit_id, u.name AS unit_name
+                 FROM learning_events e
+                 JOIN topics t ON t.id = e.topic_id
+                 LEFT JOIN units u ON u.id = t.unit_id
                  WHERE t.subject_id = ?
                  ORDER BY e.event_date, COALESCE(e.period_start, 0), e.id"""
         return [dict(r) for r in self._conn.execute(sql, [subject_id]).fetchall()]
 
     def memory_states_for_subject(self, subject_id: int) -> list[dict[str, Any]]:
-        sql = """SELECT m.*, t.name AS topic_name
-                 FROM memory_states m JOIN topics t ON t.id = m.topic_id
-                 WHERE t.subject_id = ? ORDER BY m.next_review_date, t.name"""
+        sql = """SELECT m.*, t.name AS topic_name, t.unit_id AS unit_id, u.name AS unit_name
+                 FROM memory_states m
+                 JOIN topics t ON t.id = m.topic_id
+                 LEFT JOIN units u ON u.id = t.unit_id
+                 WHERE t.subject_id = ?
+                 ORDER BY m.next_review_date, t.name"""
         return [dict(r) for r in self._conn.execute(sql, [subject_id]).fetchall()]
 
     def set_topic_links(self, link_table: str, owner_id: int, topic_ids: Sequence[int]) -> None:

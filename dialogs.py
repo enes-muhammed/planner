@@ -1,8 +1,9 @@
-"""dialogs.py - Planlama girdileri ve oturum tamamlama iletişim pencereleri."""
+"""dialogs.py - Planlama girdileri, oturum tamamlama ve ünite iletişim pencereleri."""
 from __future__ import annotations
 
 import json
 from datetime import date, time, timedelta
+from typing import Any
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
@@ -13,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from engine import (
     AvailabilityType, PlannerService, RecallResult, RecurrenceKind,
-    RecurringRule, SchoolLesson, SessionView, TaskClass
+    RecurringRule, SchoolLesson, SessionView, TaskClass, Unit
 )
 from ui_common import (
     AVAIL_LABEL, CLASS_LABEL, WEEKDAYS, buttons, fmt_date,
@@ -32,13 +33,115 @@ DAY_MAP = {
 
 
 def parse_time_str(time_str: str) -> time:
-    """'08:20' formatındaki metni time nesnesine dönüştürür."""
+    """Saat metnini time nesnesine donusturur."""
     parts = [int(p) for p in time_str.strip().split(":")[:2]]
     return time(parts[0], parts[1])
 
 
+class UnitDialog(QDialog):
+    """Yeni ünite ekleme veya mevcut üniteyi düzenleme penceresi."""
+
+    def __init__(
+        self,
+        service: PlannerService,
+        subject_id: int,
+        unit: Unit | None = None,
+        parent: QWidget | None = None
+    ) -> None:
+        super().__init__(parent)
+        self.service = service
+        self.subject_id = subject_id
+        self.unit = unit
+        self._setup_window()
+        self._setup_form()
+        self._setup_buttons()
+
+    def _setup_window(self) -> None:
+        title = "Üniteyi Düzenle" if self.unit else "Yeni Ünite Ekle"
+        self.setWindowTitle(title)
+        self.resize(380, 220)
+
+    def _setup_form(self) -> None:
+        self._form = QFormLayout(self)
+        self.name_edit = QLineEdit()
+        if self.unit:
+            self.name_edit.setText(self.unit.name)
+        self._form.addRow("Ünite Adı", self.name_edit)
+
+        self.order_spin = QSpinBox()
+        self.order_spin.setRange(1, 99)
+        if self.unit:
+            self.order_spin.setValue(self.unit.order_no)
+        else:
+            existing = self.service.list_units(self.subject_id)
+            next_order = max((u.order_no for u in existing), default=0) + 1
+            self.order_spin.setValue(next_order)
+        self._form.addRow("Sıra No", self.order_spin)
+
+        # Başlangıç ve Bitiş tarihleri (isteğe bağlı)
+        self.start_check = QCheckBox("Başlangıç tarihi belirt")
+        initial_start = self.unit.start_date if self.unit and self.unit.start_date else date.today()
+        self.start_edit = make_date_edit(initial_start)
+        self.start_check.setChecked(bool(self.unit and self.unit.start_date))
+        self.start_edit.setEnabled(self.start_check.isChecked())
+        self.start_check.toggled.connect(self.start_edit.setEnabled)
+
+        row_start = QHBoxLayout()
+        row_start.addWidget(self.start_check)
+        row_start.addWidget(self.start_edit)
+        self._form.addRow("Başlangıç", row_start)
+
+        self.end_check = QCheckBox("Bitiş tarihi belirt")
+        initial_end = self.unit.end_date if self.unit and self.unit.end_date else date.today() + timedelta(days=30)
+        self.end_edit = make_date_edit(initial_end)
+        self.end_check.setChecked(bool(self.unit and self.unit.end_date))
+        self.end_edit.setEnabled(self.end_check.isChecked())
+        self.end_check.toggled.connect(self.end_edit.setEnabled)
+
+        row_end = QHBoxLayout()
+        row_end.addWidget(self.end_check)
+        row_end.addWidget(self.end_edit)
+        self._form.addRow("Bitiş", row_end)
+
+    def _setup_buttons(self) -> None:
+        self._form.addRow(buttons(self))
+
+    def accept(self) -> None:
+        name = self.name_edit.text().strip()
+        if not name:
+            show_error(self, ValueError("Ünite adı boş olamaz."))
+            return
+
+        start_d = self.start_edit.date().toPython() if self.start_check.isChecked() else None
+        end_d = self.end_edit.date().toPython() if self.end_check.isChecked() else None
+        order = self.order_spin.value()
+
+        try:
+            if self.unit and self.unit.id is not None:
+                self.service.update_unit(
+                    self.unit.id,
+                    name=name,
+                    order_no=order,
+                    start_date=start_d,
+                    end_date=end_d
+                )
+            else:
+                self.service.add_unit(
+                    self.subject_id,
+                    name=name,
+                    order_no=order,
+                    start_date=start_d,
+                    end_date=end_d
+                )
+        except Exception as exc:
+            show_error(self, exc)
+            return
+
+        super().accept()
+
+
 class LearningEventDialog(QDialog):
-    """Derste işlenen konuyu kaydetme penceresi."""
+    """Derste işlenen konuyu kaydetme penceresi (Ünite ve Alt Konu seçimiyle)."""
 
     def __init__(
         self,
@@ -55,12 +158,14 @@ class LearningEventDialog(QDialog):
     def _setup_window(self, service: PlannerService, lesson: SchoolLesson) -> None:
         self.setWindowTitle("Derste işlenen konuyu kaydet")
         self.service, self.lesson = service, lesson
+        self.resize(420, 260)
 
     def _setup_form(self) -> None:
         self._form = QFormLayout(self)
 
     def _setup_fields(self, lesson: SchoolLesson) -> None:
         self._setup_labels(lesson)
+        self._setup_unit(lesson)
         self._setup_topic(lesson)
         self._setup_notes()
         self._add_field_rows()
@@ -72,13 +177,32 @@ class LearningEventDialog(QDialog):
             f"Bu haftaki {lesson.subject_lesson_no}. {lesson.subject_name} dersi"
         )
 
+    def _setup_unit(self, lesson: SchoolLesson) -> None:
+        self.unit = QComboBox()
+        self.unit.setEditable(True)
+        self.unit.addItem("", None)
+        units = self.service.list_units(lesson.subject_id)
+        for u in units:
+            self.unit.addItem(u.name, u.id)
+        self.unit.setCurrentText("")
+        self.unit.currentTextChanged.connect(self._on_unit_changed)
+
     def _setup_topic(self, lesson: SchoolLesson) -> None:
         self.topic = QComboBox()
         self.topic.setEditable(True)
-        self.topic.addItems(
-            [t.name for t in self.service.list_topics(lesson.subject_id)]
-        )
+        self._reload_topics()
         self.topic.setCurrentText("")
+
+    def _reload_topics(self) -> None:
+        self.topic.clear()
+        selected_unit_id = self.unit.currentData()
+        topics = self.service.list_topics(self.lesson.subject_id, unit_id=selected_unit_id)
+        self.topic.addItems([t.name for t in topics])
+
+    def _on_unit_changed(self, text: str) -> None:
+        curr_topic = self.topic.currentText()
+        self._reload_topics()
+        self.topic.setCurrentText(curr_topic)
 
     def _setup_notes(self) -> None:
         self.notes = QLineEdit()
@@ -87,6 +211,7 @@ class LearningEventDialog(QDialog):
         self._form.addRow("Tarih", self.date_label)
         self._form.addRow("Ders", self.subject_label)
         self._form.addRow("Haftalık sıra", self.ordinal_label)
+        self._form.addRow("Ünite (seç ya da yeni yaz)", self.unit)
         self._form.addRow("Konu (seç ya da yeni yaz)", self.topic)
         self._form.addRow("Not", self.notes)
 
@@ -94,13 +219,29 @@ class LearningEventDialog(QDialog):
         self._form.addRow(buttons(self))
 
     def accept(self) -> None:
+        topic_name = self.topic.currentText().strip()
+        if not topic_name:
+            show_error(self, ValueError("Konu adı boş olamaz."))
+            return
+
+        unit_name = self.unit.currentText().strip()
+        unit_id = None
+        if unit_name:
+            try:
+                unit = self.service.get_or_create_unit(self.lesson.subject_id, unit_name)
+                unit_id = unit.id
+            except Exception as exc:
+                show_error(self, exc)
+                return
+
         try:
             self.service.add_learning_event(
                 self.lesson.subject_id,
                 self.lesson.lesson_date,
-                self.topic.currentText(),
+                topic_name,
                 self.lesson.subject_lesson_no,
-                notes=self.notes.text()
+                notes=self.notes.text(),
+                unit_id=unit_id
             )
         except ValueError as exc:
             show_error(self, exc)
@@ -110,7 +251,7 @@ class LearningEventDialog(QDialog):
 
 
 class TaskDialog(QDialog):
-    """Görev ekleme penceresi (deadline, recurring veya manual review)."""
+    """Görev ekleme penceresi."""
 
     def __init__(
         self,
@@ -210,8 +351,10 @@ class TaskDialog(QDialog):
         )
 
         for subj in self.service.list_subjects():
+            units_map = {u.id: u.name for u in self.service.list_units(subj.id) if u.id is not None}
             for t in self.service.list_topics(subj.id):
-                item = QListWidgetItem(f"{subj.name} / {t.name}")
+                unit_str = f" [{units_map[t.unit_id]}]" if t.unit_id and t.unit_id in units_map else ""
+                item = QListWidgetItem(f"{subj.name}{unit_str} / {t.name}")
                 item.setData(Qt.ItemDataRole.UserRole, t.id)
                 self.topics.addItem(item)
 
@@ -349,7 +492,6 @@ class AvailabilityDialog(QDialog):
         day_row = QHBoxLayout()
 
         for cb in self.days:
-            cb.setChecked(True)
             day_row.addWidget(cb)
 
         form.addRow("Günler", day_row)
@@ -440,7 +582,7 @@ class AvailabilityDialog(QDialog):
 
 
 class TimetableImportDialog(QDialog):
-    """JSON formatındaki haftalık ders programını inceleyip içe aktaran pencere."""
+    """JSON formatındaki ders programını içe aktarma penceresi."""
 
     def __init__(self, service: PlannerService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -452,7 +594,7 @@ class TimetableImportDialog(QDialog):
         root.setSpacing(10)
 
         info_lbl = QLabel(
-            "<b>Ders programı JSON dosyasını seçin</b> veya içeriğini doğrudan aşağıdaki kutuya yapıştırın:"
+            "<b>Ders programı JSON dosyasını seçin</b> veya içeriğini metin alanına yapıştırın:"
         )
         info_lbl.setWordWrap(True)
         root.addWidget(info_lbl)
@@ -465,14 +607,23 @@ class TimetableImportDialog(QDialog):
         root.addLayout(btn_row)
 
         self.text_edit = QTextEdit()
-        self.text_edit.setPlaceholderText(
-            'Örnek Format:\n{\n  "program": [\n    {\n      "gun": "Pazartesi",\n      "dersler": [\n'
-            '        { "saat_no": 1, "baslangic": "08:20", "bitis": "09:00", "ders": "Tefsir" }\n'
-            '      ]\n    }\n  ]\n}'
+        placeholder = (
+            "Örnek format:\n"
+            '{\n'
+            '  "program": [\n'
+            '    {\n'
+            '      "gun": "Pazartesi",\n'
+            '      "dersler": [\n'
+            '        {"saat_no": 1, "baslangic": "08:20", "bitis": "09:00", "ders": "Matematik"}\n'
+            '      ]\n'
+            '    }\n'
+            '  ]\n'
+            '}'
         )
+        self.text_edit.setPlaceholderText(placeholder)
         root.addWidget(self.text_edit, 1)
 
-        self.chk_clear_existing = QCheckBox("İçe aktarmadan önce mevcut ders programını tamamen temizle")
+        self.chk_clear_existing = QCheckBox("İçe aktarmadan önce mevcut programı temizle")
         self.chk_clear_existing.setChecked(True)
         root.addWidget(self.chk_clear_existing)
 
@@ -512,11 +663,11 @@ class TimetableImportDialog(QDialog):
             QMessageBox.warning(self, "Uyarı", "Lütfen bir JSON dosyası seçin veya JSON metnini yapıştırın.")
             return
 
-        # Olası art arda kopyalanmış JSON bloklarını toparla
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
-            idx = content.find("}{")
+            sep = chr(125) + chr(123)
+            idx = content.find(sep)
             if idx != -1:
                 try:
                     data = json.loads(content[:idx + 1])
@@ -534,16 +685,15 @@ class TimetableImportDialog(QDialog):
             days_list = data
 
         if not days_list:
-            QMessageBox.warning(self, "Uyarı", "JSON içerisinde 'program' listesi bulunamadı.")
+            QMessageBox.warning(self, "Uyarı", "JSON içerisinde program listesi bulunamadı.")
             return
 
-        # İsteğe bağlı olarak mevcut programı temizle
         if self.chk_clear_existing.isChecked():
             existing_entries = self.service.list_timetable()
             for e in existing_entries:
                 self.service.delete_timetable_entry(e.id)
 
-        existing_subjects = {s.name.strip().lower(): s.id for s in self.service.list_subjects()}
+        existing_subjects = {s.name.strip().lower(): s.id for s in self.service.list_subjects() if s.id is not None}
 
         imported_count = 0
         new_subjects_added = 0
@@ -575,13 +725,12 @@ class TimetableImportDialog(QDialog):
                 except Exception:
                     continue
 
-                # Sistemde kayıtlı olmayan ders varsa otomatik olarak dersler listesine ekle
                 ders_key = ders_name.lower()
                 if ders_key not in existing_subjects:
                     try:
                         self.service.add_subject(ders_name)
                         new_subjects_added += 1
-                        existing_subjects = {s.name.strip().lower(): s.id for s in self.service.list_subjects()}
+                        existing_subjects = {s.name.strip().lower(): s.id for s in self.service.list_subjects() if s.id is not None}
                     except Exception:
                         pass
 
@@ -607,7 +756,7 @@ class TimetableImportDialog(QDialog):
 
 
 class TimetableDialog(QDialog):
-    """Haftalık okul ders programı penceresi (JSON İçe Aktarma Desteği ile)."""
+    """Haftalık okul ders programı penceresi."""
 
     def __init__(
         self,
@@ -801,8 +950,10 @@ class ExamDialog(QDialog):
         )
 
         for subj in self.service.list_subjects():
+            units_map = {u.id: u.name for u in self.service.list_units(subj.id) if u.id is not None}
             for t in self.service.list_topics(subj.id):
-                item = QListWidgetItem(f"{subj.name} / {t.name}")
+                unit_str = f" [{units_map[t.unit_id]}]" if t.unit_id and t.unit_id in units_map else ""
+                item = QListWidgetItem(f"{subj.name}{unit_str} / {t.name}")
                 item.setData(Qt.ItemDataRole.UserRole, t.id)
                 self.topics.addItem(item)
 

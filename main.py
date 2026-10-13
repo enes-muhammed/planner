@@ -9,9 +9,11 @@ from pathlib import Path
 from database import Database
 from engine import AvailabilityType, PlannerService, RecurrenceKind, RecurringRule
 
+db_path = Path(__file__).parent / "planner.db"
+# db_path = Path.home() / ".tubitak_study_planner" # uncomment this line to use a hidden folder in the home directory instead of the current directory
 
 def default_db_path() -> Path:
-    folder = Path.home() / ".tubitak_study_planner"
+    folder = db_path.parent
     folder.mkdir(parents=True, exist_ok=True)
     return folder / "planner.db"
 

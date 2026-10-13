@@ -1,4 +1,4 @@
-"""sidebar.py - Görseldeki minimalist sol dark rail ve dinamik context sidebar."""
+"""sidebar.py - Minimalist sol dark rail ve dinamik context sidebar."""
 from __future__ import annotations
 
 import os
@@ -10,8 +10,6 @@ from PySide6.QtWidgets import (
 )
 
 from engine import PlannerService
-
-SIDEBAR_BUTTON_RADIUS = 5
 
 
 def load_icon_or_fallback(icon_name: str, fallback_text: str, size: int = 20) -> QIcon:
@@ -48,7 +46,7 @@ class NavRailButton(QPushButton):
             QPushButton {
                 background: transparent;
                 border: none;
-                border-radius: 5px;
+                border-radius: 10px;
             }
             QPushButton:hover {
                 background-color: #27282D;
@@ -60,7 +58,7 @@ class NavRailButton(QPushButton):
 
 
 class LeftNavRail(QFrame):
-    """Görseldeki sol dar siyah navigasyon çubuğu."""
+    """Sol dar siyah navigasyon çubuğu."""
 
     tab_changed = Signal(int)
     planning_triggered = Signal(str)
@@ -76,11 +74,11 @@ class LeftNavRail(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 16, 10, 16)
+        layout.setContentsMargins(10, 16, 10, 22)
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        # 1. Logo (Görseldeki geometrik amblem)
+        # 1. Logo
         self.logo_btn = QPushButton()
         self.logo_btn.setFixedSize(44, 44)
         self.logo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -113,12 +111,12 @@ class LeftNavRail(QFrame):
 
         layout.addStretch(1)
 
-        # 3. Planlama & Hızlı İşlemler Butonu (Görseldeki analiz/trend ikonu)
+        # 3. Planlama & Hızlı İşlemler Butonu
         self.btn_plan = NavRailButton("planning", "⚡", "Planlama & Menü")
         self.btn_plan.clicked.connect(self._open_planning_menu)
         layout.addWidget(self.btn_plan)
 
-        # 4. Ayarlar / Müsaitlik (Görseldeki alt dişli çark)
+        # 4. Ayarlar / Müsaitlik
         self.btn_settings = NavRailButton("settings", "⚙", "Çalışma Zamanları")
         self.btn_settings.clicked.connect(lambda: self.planning_triggered.emit("availability"))
         layout.addWidget(self.btn_settings)
@@ -155,10 +153,7 @@ class SidebarItemWidget(QPushButton):
         layout.setContentsMargins(10, 0, 12, 0)
 
         self.lbl_title = QLabel(title)
-        self.lbl_title.setStyleSheet("font-size: 13px; font-weight: 500; color: #202124;")
-
         self.lbl_count = QLabel(str(count) if count != "" else "")
-        self.lbl_count.setStyleSheet("font-size: 12px; font-weight: 500; color: #70757A;")
 
         layout.addWidget(self.lbl_title)
         layout.addStretch(1)
@@ -179,7 +174,8 @@ class SidebarItemWidget(QPushButton):
                     border-radius: 8px;
                 }
             """)
-            self.lbl_title.setStyleSheet("font-size: 13px; font-weight: 600; color: #000000;")
+            self.lbl_title.setStyleSheet("font-size: 13px; font-weight: 600; color: #000000; background: transparent; border: none;")
+            self.lbl_count.setStyleSheet("font-size: 12px; font-weight: 600; color: #555555; background: transparent; border: none;")
         else:
             self.setStyleSheet("""
                 QPushButton {
@@ -191,7 +187,8 @@ class SidebarItemWidget(QPushButton):
                     background-color: #EAEBED;
                 }
             """)
-            self.lbl_title.setStyleSheet("font-size: 13px; font-weight: 500; color: #3C4043;")
+            self.lbl_title.setStyleSheet("font-size: 13px; font-weight: 500; color: #3C4043; background: transparent; border: none;")
+            self.lbl_count.setStyleSheet("font-size: 12px; font-weight: 500; color: #70757A; background: transparent; border: none;")
 
 
 class ExpandedSidebar(QWidget):
@@ -207,17 +204,21 @@ class ExpandedSidebar(QWidget):
         self.setFixedWidth(210)
         self.setStyleSheet("background: transparent;")
 
+        self.subject_buttons: dict[int, SidebarItemWidget] = {}
+        self.filter_buttons: list[SidebarItemWidget] = []
+
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(14, 18, 10, 16)
         self.main_layout.setSpacing(10)
 
-        # Dinamik içerik konteyneri
         self.content_area = QVBoxLayout()
         self.content_area.setSpacing(4)
         self.main_layout.addLayout(self.content_area)
         self.main_layout.addStretch(1)
 
     def clear_content(self) -> None:
+        self.subject_buttons.clear()
+        self.filter_buttons.clear()
         while self.content_area.count():
             item = self.content_area.takeAt(0)
             widget = item.widget()
@@ -245,11 +246,20 @@ class ExpandedSidebar(QWidget):
         self.content_area.addWidget(title)
 
         subjects = self.service.list_subjects()
+
+        # Aktif ders belirtilmemişse ilk dersi seç
+        if active_id is None and subjects and subjects[0].id is not None:
+            active_id = subjects[0].id
+
+        self.subject_buttons = {}
         for s in subjects:
+            if s.id is None:
+                continue
             item = SidebarItemWidget(s.name, "")
-            is_active = (s.id == active_id) if active_id is not None else (subjects and s.id == subjects[0].id)
+            is_active = (s.id == active_id)
             item.set_active(is_active)
-            item.clicked.connect(lambda _, sid=s.id: self.subject_selected.emit(sid))
+            item.clicked.connect(lambda _, sid=s.id, it=item: self._on_subject_clicked(sid, it))
+            self.subject_buttons[s.id] = item
             self.content_area.addWidget(item)
 
         btn_add = QPushButton("+ Ders Ekle")
@@ -271,6 +281,17 @@ class ExpandedSidebar(QWidget):
         """)
         btn_add.clicked.connect(self.subject_add_requested.emit)
         self.content_area.addWidget(btn_add)
+
+    def _on_subject_clicked(self, sid: int, selected_item: SidebarItemWidget) -> None:
+        """Ders tıklandığında seçili butonun stilini günceller ve sinyali iletir."""
+        for btn in self.subject_buttons.values():
+            btn.set_active(btn is selected_item)
+        self.subject_selected.emit(sid)
+
+    def set_active_subject(self, sid: int) -> None:
+        """Dışarıdan çağrıldığında ilgili ders butonunu aktif yapar."""
+        for s_id, btn in self.subject_buttons.items():
+            btn.set_active(s_id == sid)
 
     def _build_tasks_sidebar(self) -> None:
         title = QLabel("Görevler")
