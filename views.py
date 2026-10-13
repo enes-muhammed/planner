@@ -7,7 +7,7 @@ from typing import Any
 from PySide6.QtCore import QPoint, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView,
+    QDialog, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView,
     QInputDialog, QLabel, QMenu, QMessageBox, QPushButton,
     QScrollArea, QSizePolicy, QSplitter, QVBoxLayout, QWidget
 )
