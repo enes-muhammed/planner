@@ -831,7 +831,7 @@ class CalendarView(QWidget):
 
     def _setup_toolbar(self, root: QVBoxLayout) -> None:
         top_bar = QHBoxLayout()
-        top_bar.setContentsMargins(16, 12, 16, 0)
+        top_bar.setContentsMargins(36, 28, 24, 0)
         top_bar.setSpacing(12)
 
         # 1. Sol Rozet (Week 43)

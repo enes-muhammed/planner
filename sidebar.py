@@ -74,7 +74,7 @@ class LeftNavRail(QFrame):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 16, 10, 22)
+        layout.setContentsMargins(10, 16, 10, 20)
         layout.setSpacing(10)
         layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
