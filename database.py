@@ -205,11 +205,112 @@ ALTER TABLE topics ADD COLUMN unit_id INTEGER REFERENCES units(id) ON DELETE SET
 CREATE INDEX idx_topics_unit ON topics(unit_id);
 """
 
-MIGRATIONS: list[str] = [_V1, _V2]  # index + 1 == schema version
+_V3 = """
+-- 1. Müfredat Hiyerarşisi: Alt Konular (Subtopics)
+CREATE TABLE subtopics (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic_id    INTEGER NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    order_no    INTEGER NOT NULL DEFAULT 1,
+    notes       TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    UNIQUE (topic_id, name)
+);
+CREATE INDEX idx_subtopics_topic ON subtopics(topic_id);
+
+-- 2. Kazanımlar / Öğrenme Çıktıları (Learning Outcomes)
+CREATE TABLE learning_outcomes (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    subtopic_id  INTEGER NOT NULL REFERENCES subtopics(id) ON DELETE CASCADE,
+    code         TEXT NOT NULL DEFAULT '',
+    description  TEXT NOT NULL,
+    order_no     INTEGER NOT NULL DEFAULT 1,
+    is_covered   INTEGER NOT NULL DEFAULT 0,
+    covered_at   TEXT,
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX idx_outcomes_subtopic ON learning_outcomes(subtopic_id);
+
+-- 3. Öğrenme Etkinlikleri (Learning Events) ile Alt Konu ve Kazanım İlişkisi
+ALTER TABLE learning_events ADD COLUMN subtopic_id INTEGER REFERENCES subtopics(id) ON DELETE SET NULL;
+CREATE INDEX idx_learning_events_subtopic ON learning_events(subtopic_id);
+
+CREATE TABLE learning_event_outcomes (
+    event_id    INTEGER NOT NULL REFERENCES learning_events(id) ON DELETE CASCADE,
+    outcome_id  INTEGER NOT NULL REFERENCES learning_outcomes(id) ON DELETE CASCADE,
+    PRIMARY KEY (event_id, outcome_id)
+);
+
+-- 4. Alt Konu Düzeyinde Hafıza Durumu (FSRS Memory States)
+CREATE TABLE subtopic_memory_states (
+    subtopic_id            INTEGER PRIMARY KEY REFERENCES subtopics(id) ON DELETE CASCADE,
+    stability_days         REAL NOT NULL,
+    difficulty             REAL NOT NULL,
+    phase                  TEXT NOT NULL CHECK (phase IN ('NEW','REVIEW','RELEARNING')),
+    last_review_date       TEXT NOT NULL,
+    next_review_date       TEXT NOT NULL,
+    review_count           INTEGER NOT NULL DEFAULT 0,
+    lapse_count            INTEGER NOT NULL DEFAULT 0,
+    last_objective_score   REAL,
+    last_subjective_score  REAL,
+    last_combined_score    REAL,
+    updated_at             TEXT NOT NULL
+);
+
+-- 5. Görev ve Sınavların Alt Konularla İlişkilendirilmesi
+CREATE TABLE task_subtopic_links (
+    task_id      INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    subtopic_id  INTEGER NOT NULL REFERENCES subtopics(id) ON DELETE CASCADE,
+    PRIMARY KEY (task_id, subtopic_id)
+);
+
+CREATE TABLE exam_subtopic_links (
+    exam_id      INTEGER NOT NULL REFERENCES exams(id) ON DELETE CASCADE,
+    subtopic_id  INTEGER NOT NULL REFERENCES subtopics(id) ON DELETE CASCADE,
+    PRIMARY KEY (exam_id, subtopic_id)
+);
+
+-- 6. Akademik Dönemler ve Çeyrekler (4 Periyot, 2 Dönem)
+CREATE TABLE academic_terms (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id  INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    term_type   TEXT NOT NULL CHECK (term_type IN ('SEMESTER', 'QUARTER')),
+    term_no     INTEGER NOT NULL,
+    start_date  TEXT NOT NULL,
+    end_date    TEXT NOT NULL,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_academic_terms_dates ON academic_terms(start_date, end_date);
+
+-- 7. 2026–2027 MEB & Diyanet Okul Var / Yok / Tatil / Yarım Gün Takvimi
+CREATE TABLE academic_calendar_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    student_id   INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+    title        TEXT NOT NULL,
+    start_date   TEXT NOT NULL,
+    end_date     TEXT NOT NULL,
+    day_status   TEXT NOT NULL CHECK (day_status IN ('OPEN', 'CLOSED', 'HALF_DAY', 'EXAM_PERIOD')),
+    event_type   TEXT NOT NULL CHECK (event_type IN ('SEMESTER_START', 'SEMESTER_END', 'BREAK', 'HOLIDAY', 'EXAM', 'CUSTOM')),
+    description  TEXT NOT NULL DEFAULT '',
+    created_at   TEXT NOT NULL
+);
+CREATE INDEX idx_academic_cal_dates ON academic_calendar_events(start_date, end_date);
+"""
+
+MIGRATIONS: list[str] = [_V1, _V2, _V3]  # index + 1 == schema version
 SCHEMA_VERSION = len(MIGRATIONS)
 
-# link tables: name -> owner column
-LINK_TABLES: dict[str, str] = {"task_topic_links": "task_id", "exam_topic_links": "exam_id"}
+# link tables: name -> (owner column, target column)
+LINK_TABLE_CONFIG: dict[str, tuple[str, str]] = {
+    "task_topic_links": ("task_id", "topic_id"),
+    "exam_topic_links": ("exam_id", "topic_id"),
+    "task_subtopic_links": ("task_id", "subtopic_id"),
+    "exam_subtopic_links": ("exam_id", "subtopic_id"),
+    "learning_event_outcomes": ("event_id", "outcome_id"),
+}
+# Backward compatibility
+LINK_TABLES: dict[str, str] = {k: v[0] for k, v in LINK_TABLE_CONFIG.items()}
 
 
 class Database:
@@ -355,7 +456,7 @@ class Database:
 
     def select(self, table: str, where: Mapping[str, Any] | None = None,
                order_by: Sequence[str] = ()) -> list[dict[str, Any]]:
-        self.table_columns(table)                      # validates the table name
+        self.table_columns(table)
         clause, params = self._where_clause(table, where)
         sql = f"SELECT * FROM {table}{clause}{self._order_clause(table, order_by)}"
         return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
@@ -371,19 +472,47 @@ class Database:
                f"{self._order_clause(table, order_by)}")
         return [dict(r) for r in self._conn.execute(sql, [*params, start, end]).fetchall()]
 
-    # ------------------------------------------------------ specific queries
+    # ------------------------------------------------------ curriculum queries
     def units_for_subject(self, subject_id: int) -> list[dict[str, Any]]:
         sql = """SELECT * FROM units
                  WHERE subject_id = ?
                  ORDER BY order_no, COALESCE(start_date, ''), id"""
         return [dict(r) for r in self._conn.execute(sql, [subject_id]).fetchall()]
 
+    def topics_for_subject(self, subject_id: int, unit_id: int | None = None) -> list[dict[str, Any]]:
+        where: dict[str, Any] = {"subject_id": subject_id}
+        if unit_id is not None:
+            where["unit_id"] = unit_id
+        return self.select("topics", where, order_by=["name"])
+
+    def subtopics_for_topic(self, topic_id: int) -> list[dict[str, Any]]:
+        sql = """SELECT * FROM subtopics
+                 WHERE topic_id = ?
+                 ORDER BY order_no, id"""
+        return [dict(r) for r in self._conn.execute(sql, [topic_id]).fetchall()]
+
+    def subtopics_for_unit(self, unit_id: int) -> list[dict[str, Any]]:
+        sql = """SELECT st.*, t.name AS topic_name, t.unit_id
+                 FROM subtopics st
+                 JOIN topics t ON t.id = st.topic_id
+                 WHERE t.unit_id = ?
+                 ORDER BY t.name, st.order_no, st.id"""
+        return [dict(r) for r in self._conn.execute(sql, [unit_id]).fetchall()]
+
+    def outcomes_for_subtopic(self, subtopic_id: int) -> list[dict[str, Any]]:
+        sql = """SELECT * FROM learning_outcomes
+                 WHERE subtopic_id = ?
+                 ORDER BY order_no, id"""
+        return [dict(r) for r in self._conn.execute(sql, [subtopic_id]).fetchall()]
+
     def learning_events_for_subject(self, subject_id: int) -> list[dict[str, Any]]:
         sql = """SELECT e.*, t.name AS topic_name, t.subject_id AS subject_id,
-                        t.unit_id AS unit_id, u.name AS unit_name
+                        t.unit_id AS unit_id, u.name AS unit_name,
+                        st.id AS subtopic_id, st.name AS subtopic_name
                  FROM learning_events e
                  JOIN topics t ON t.id = e.topic_id
                  LEFT JOIN units u ON u.id = t.unit_id
+                 LEFT JOIN subtopics st ON st.id = e.subtopic_id
                  WHERE t.subject_id = ?
                  ORDER BY e.event_date, COALESCE(e.period_start, 0), e.id"""
         return [dict(r) for r in self._conn.execute(sql, [subject_id]).fetchall()]
@@ -397,21 +526,40 @@ class Database:
                  ORDER BY m.next_review_date, t.name"""
         return [dict(r) for r in self._conn.execute(sql, [subject_id]).fetchall()]
 
-    def set_topic_links(self, link_table: str, owner_id: int, topic_ids: Sequence[int]) -> None:
-        owner_col = LINK_TABLES[link_table]
+    def subtopic_memory_states_for_subject(self, subject_id: int) -> list[dict[str, Any]]:
+        sql = """SELECT sms.*, st.name AS subtopic_name, st.topic_id, t.name AS topic_name,
+                        t.unit_id, u.name AS unit_name
+                 FROM subtopic_memory_states sms
+                 JOIN subtopics st ON st.id = sms.subtopic_id
+                 JOIN topics t ON t.id = st.topic_id
+                 LEFT JOIN units u ON u.id = t.unit_id
+                 WHERE t.subject_id = ?
+                 ORDER BY sms.next_review_date, st.order_no"""
+        return [dict(r) for r in self._conn.execute(sql, [subject_id]).fetchall()]
+
+    # --------------------------------------------------------- link management
+    def set_links(self, link_table: str, owner_id: int, target_ids: Sequence[int]) -> None:
+        if link_table not in LINK_TABLE_CONFIG:
+            raise ValueError(f"Unknown link table: {link_table}")
+        owner_col, target_col = LINK_TABLE_CONFIG[link_table]
         with self.transaction():
             self._conn.execute(f"DELETE FROM {link_table} WHERE {owner_col} = ?", [owner_id])
-            for tid in dict.fromkeys(topic_ids):  # de-duplicate, keep order
+            for tid in dict.fromkeys(target_ids):
                 self._conn.execute(
-                    f"INSERT INTO {link_table} ({owner_col}, topic_id) VALUES (?, ?)", [owner_id, tid])
+                    f"INSERT INTO {link_table} ({owner_col}, {target_col}) VALUES (?, ?)", [owner_id, tid])
+
+    def set_topic_links(self, link_table: str, owner_id: int, topic_ids: Sequence[int]) -> None:
+        self.set_links(link_table, owner_id, topic_ids)
 
     def topic_link_map(self, link_table: str) -> dict[int, list[int]]:
-        owner_col = LINK_TABLES[link_table]
+        if link_table not in LINK_TABLE_CONFIG:
+            raise ValueError(f"Unknown link table: {link_table}")
+        owner_col, target_col = LINK_TABLE_CONFIG[link_table]
         rows = self._conn.execute(
-            f"SELECT {owner_col} AS owner, topic_id FROM {link_table} ORDER BY {owner_col}, topic_id").fetchall()
+            f"SELECT {owner_col} AS owner, {target_col} AS target FROM {link_table} ORDER BY {owner_col}, {target_col}").fetchall()
         result: dict[int, list[int]] = {}
         for r in rows:
-            result.setdefault(int(r["owner"]), []).append(int(r["topic_id"]))
+            result.setdefault(int(r["owner"]), []).append(int(r["target"]))
         return result
 
     def find_review_tasks(self, topic_id: int, source: str, status: str = "PENDING") -> list[dict[str, Any]]:
@@ -438,6 +586,88 @@ class Database:
 
     def delete_planned_sessions(self) -> int:
         return self.delete("study_sessions", {"status": "PLANNED"})
+
+    # ------------------------------------------------------- academic calendar
+    def academic_terms(self, student_id: int = 1) -> list[dict[str, Any]]:
+        sql = """SELECT * FROM academic_terms
+                 WHERE student_id = ?
+                 ORDER BY start_date, term_no"""
+        return [dict(r) for r in self._conn.execute(sql, [student_id]).fetchall()]
+
+    def academic_calendar_events_for_range(self, start_date: str, end_date: str, student_id: int = 1) -> list[dict[str, Any]]:
+        sql = """SELECT * FROM academic_calendar_events
+                 WHERE student_id = ?
+                   AND start_date <= ? AND end_date >= ?
+                 ORDER BY start_date, id"""
+        return [dict(r) for r in self._conn.execute(sql, [student_id, end_date, start_date]).fetchall()]
+
+    def school_status_for_date(self, target_date: str, student_id: int = 1) -> dict[str, Any] | None:
+        """Belirtilen gün için resmi okul durumunu (OPEN, CLOSED, HALF_DAY) döner."""
+        sql = """SELECT * FROM academic_calendar_events
+                 WHERE student_id = ?
+                   AND start_date <= ? AND end_date >= ?
+                 ORDER BY CASE day_status WHEN 'CLOSED' THEN 1 WHEN 'HALF_DAY' THEN 2 ELSE 3 END, id
+                 LIMIT 1"""
+        row = self._conn.execute(sql, [student_id, target_date, target_date]).fetchone()
+        return dict(row) if row else None
+
+    def seed_default_academic_calendar(self, student_id: int = 1) -> None:
+        """2026-2027 MEB ve Diyanet resmi takvimini veritabanına ekler."""
+        have = self.select("academic_calendar_events", {"student_id": student_id})
+        if have:
+            return  # Zaten tohumlanmış
+
+        with self.transaction():
+            # 1. Dönemler (2 Dönem, 4 Çeyrek / Periyot)
+            terms = [
+                ("1. Dönem", "SEMESTER", 1, "2026-09-14", "2027-01-22"),
+                ("1. Dönem 1. Çeyrek", "QUARTER", 1, "2026-09-14", "2026-11-13"),
+                ("1. Dönem 2. Çeyrek", "QUARTER", 2, "2026-11-23", "2027-01-22"),
+                ("2. Dönem", "SEMESTER", 2, "2027-02-08", "2027-06-25"),
+                ("2. Dönem 3. Çeyrek", "QUARTER", 3, "2027-02-08", "2027-03-05"),
+                ("2. Dönem 4. Çeyrek", "QUARTER", 4, "2027-03-15", "2027-06-25"),
+            ]
+            for name, t_type, t_no, s_date, e_date in terms:
+                self.insert("academic_terms", {
+                    "student_id": student_id,
+                    "name": name,
+                    "term_type": t_type,
+                    "term_no": t_no,
+                    "start_date": s_date,
+                    "end_date": e_date,
+                    "created_at": "2026-09-01T00:00:00"
+                })
+
+            # 2. 2026-2027 Resmi Okul Var/Yok ve Tatil Takvimi
+            events = [
+                ("Okul Açılışı", "2026-09-14", "2026-09-14", "OPEN", "SEMESTER_START", "2026-2027 Eğitim Öğretim Yılı Başlangıcı"),
+                ("Cumhuriyet Bayramı Arifesi", "2026-10-28", "2026-10-28", "HALF_DAY", "HOLIDAY", "28 Ekim Öğleden Sonra Tatil"),
+                ("Cumhuriyet Bayramı", "2026-10-29", "2026-10-29", "CLOSED", "HOLIDAY", "29 Ekim Cumhuriyet Bayramı"),
+                ("1. Ara Tatil", "2026-11-16", "2026-11-20", "CLOSED", "BREAK", "1. Dönem Ara Tatili"),
+                ("Yılbaşı Tatili", "2027-01-01", "2027-01-01", "CLOSED", "HOLIDAY", "Yılbaşı Resmi Tatili"),
+                ("1. Dönem Karne Günü", "2027-01-22", "2027-01-22", "OPEN", "SEMESTER_END", "1. Yarıyıl Sonu"),
+                ("Yarıyıl (Sömestr) Tatili", "2027-01-25", "2027-02-05", "CLOSED", "BREAK", "15 Tatil"),
+                ("2. Dönem Okul Açılışı", "2027-02-08", "2027-02-08", "OPEN", "SEMESTER_START", "2. Yarıyıl Başlangıcı"),
+                ("Ramazan Bayramı Arifesi", "2027-03-08", "2027-03-08", "HALF_DAY", "HOLIDAY", "Arefe Günü Öğleden Sonra Tatil"),
+                ("Ramazan Bayramı", "2027-03-09", "2027-03-11", "CLOSED", "HOLIDAY", "Ramazan Bayramı"),
+                ("2. Ara Tatil", "2027-03-12", "2027-03-12", "CLOSED", "BREAK", "2. Dönem Ara Tatili Devamı"),
+                ("23 Nisan Ulusal Egemenlik ve Çocuk Bayramı", "2027-04-23", "2027-04-23", "CLOSED", "HOLIDAY", "23 Nisan Resmi Tatili"),
+                ("1 Mayıs Emek ve Dayanışma Günü", "2027-05-01", "2027-05-01", "CLOSED", "HOLIDAY", "Hafta sonuna denk gelen resmi tatil"),
+                ("Kurban Bayramı Arifesi", "2027-05-15", "2027-05-15", "HALF_DAY", "HOLIDAY", "Hafta sonu arife"),
+                ("Kurban Bayramı ve 19 Mayıs", "2027-05-17", "2027-05-19", "CLOSED", "HOLIDAY", "Kurban Bayramı ve 19 Mayıs Atatürk'ü Anma Gençlik ve Spor Bayramı"),
+                ("Karne Günü / Okul Kapanışı", "2027-06-25", "2027-06-25", "OPEN", "SEMESTER_END", "2026-2027 Eğitim Öğretim Yılı Kapanışı"),
+            ]
+            for title, s_date, e_date, status, ev_type, desc in events:
+                self.insert("academic_calendar_events", {
+                    "student_id": student_id,
+                    "title": title,
+                    "start_date": s_date,
+                    "end_date": e_date,
+                    "day_status": status,
+                    "event_type": ev_type,
+                    "description": desc,
+                    "created_at": "2026-09-01T00:00:00"
+                })
 
     # -------------------------------------------------------------- settings
     def get_setting(self, key: str, default: str | None = None) -> str | None:

@@ -27,7 +27,7 @@ from ui_common import (
 # ==============================================================================
 # ⚙️ TAKVİM YAPILANDIRMA DEĞİŞKENLERİ (İstediğiniz gibi özelleştirebilirsiniz)
 # ==============================================================================
-HOUR_HEIGHT = 130              # 60 dakikanın piksel yüksekliği (Büyük ve ferah)
+HOUR_HEIGHT = 180              # 60 dakikanın piksel yüksekliği (Büyük ve ferah)
 INTERVAL_GRID_ENABLED = True   # True: Kılavuz çizgileri görünsün, False: Sadece saat çizgileri
 GRID_INTERVAL_MINUTES = 30     # Kılavuz çizgisi sıklığı (dk cinsinden: 15, 30, 60 vb.)
 

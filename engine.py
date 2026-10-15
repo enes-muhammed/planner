@@ -149,7 +149,7 @@ class MemoryConfig:
 
 @dataclass(frozen=True)
 class TaskConfig:
-    default_minimum_session: int = 25     # for splittable tasks without an explicit minimum
+    default_minimum_session: int = 20     # for splittable tasks without an explicit minimum
     max_priority: int = 10
     min_priority: int = 1
     occurrence_horizon_days: int = 21     # how far ahead recurring occurrences are materialised
