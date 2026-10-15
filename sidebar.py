@@ -58,7 +58,7 @@ class NavRailButton(QPushButton):
 
 
 class LeftNavRail(QFrame):
-    """Sol dar siyah navigasyon çubuğu."""
+    """Sol dar siyah navigasyon çubuğu (4 Ana Sekme)."""
 
     tab_changed = Signal(int)
     planning_triggered = Signal(str)
@@ -97,12 +97,13 @@ class LeftNavRail(QFrame):
 
         layout.addSpacing(16)
 
-        # 2. Sayfa İkonları
-        self.btn_calendar = NavRailButton("calendar", "📅", "Takvim")
-        self.btn_subjects = NavRailButton("subjects", "💼", "Dersler")
-        self.btn_tasks = NavRailButton("tasks", "🎯", "Görevler")
+        # 2. Sayfa İkonları (Takvim, Yol Haritası, Dersler, Görevler)
+        self.btn_calendar = NavRailButton("calendar", "📅", "Haftalık Takvim")
+        self.btn_roadmap = NavRailButton("roadmap", "🧭", "Akademik Yol Haritası")
+        self.btn_subjects = NavRailButton("subjects", "💼", "Dersler & Müfredat")
+        self.btn_tasks = NavRailButton("tasks", "🎯", "Görev Havuzu")
 
-        self.buttons = [self.btn_calendar, self.btn_subjects, self.btn_tasks]
+        self.buttons = [self.btn_calendar, self.btn_roadmap, self.btn_subjects, self.btn_tasks]
         for i, btn in enumerate(self.buttons):
             btn.clicked.connect(lambda _, idx=i: self._on_button_clicked(idx))
             layout.addWidget(btn)
@@ -111,8 +112,8 @@ class LeftNavRail(QFrame):
 
         layout.addStretch(1)
 
-        # 3. Planlama & Hızlı İşlemler Butonu
-        self.btn_plan = NavRailButton("planning", "⚡", "Planlama & Menü")
+        # 3. Planlama & Menü
+        self.btn_plan = NavRailButton("planning", "⚡", "Planlama & Yeniden Hesapla")
         self.btn_plan.clicked.connect(self._open_planning_menu)
         layout.addWidget(self.btn_plan)
 
@@ -197,6 +198,7 @@ class ExpandedSidebar(QWidget):
     subject_selected = Signal(int)
     subject_add_requested = Signal()
     task_filter_selected = Signal(str)
+    roadmap_filter_selected = Signal(str)
 
     def __init__(self, service: PlannerService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -228,7 +230,7 @@ class ExpandedSidebar(QWidget):
     def update_view(self, tab_index: int, active_subject_id: int | None = None) -> None:
         self.clear_content()
 
-        # Tab 0: Takvim -> Genişletilmiş sidebar tamamen gizlenir
+        # Tab 0: Takvim -> Sidebar tamamen gizlenir
         if tab_index == 0:
             self.setVisible(False)
             return
@@ -236,9 +238,38 @@ class ExpandedSidebar(QWidget):
         self.setVisible(True)
 
         if tab_index == 1:
-            self._build_subjects_sidebar(active_subject_id)
+            # Tab 1: Yol Haritası
+            self._build_roadmap_sidebar()
         elif tab_index == 2:
+            # Tab 2: Dersler
+            self._build_subjects_sidebar(active_subject_id)
+        elif tab_index == 3:
+            # Tab 3: Görevler
             self._build_tasks_sidebar()
+
+    def _build_roadmap_sidebar(self) -> None:
+        title = QLabel("Yol Haritası")
+        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #17181C; margin-bottom: 8px;")
+        self.content_area.addWidget(title)
+
+        filters = [
+            ("Tüm Yıl", "ALL", "36 H"),
+            ("1. Dönem", "TERM_1", "18 H"),
+            ("2. Dönem", "TERM_2", "18 H"),
+        ]
+
+        self.filter_buttons = []
+        for i, (label, key, count) in enumerate(filters):
+            item = SidebarItemWidget(label, count)
+            item.set_active(i == 0)
+            item.clicked.connect(lambda _, k=key, it=item: self._on_roadmap_filter_clicked(k, it))
+            self.filter_buttons.append(item)
+            self.content_area.addWidget(item)
+
+    def _on_roadmap_filter_clicked(self, filter_key: str, selected_item: SidebarItemWidget) -> None:
+        for btn in self.filter_buttons:
+            btn.set_active(btn is selected_item)
+        self.roadmap_filter_selected.emit(filter_key)
 
     def _build_subjects_sidebar(self, active_id: int | None) -> None:
         title = QLabel("Dersler")
@@ -246,8 +277,6 @@ class ExpandedSidebar(QWidget):
         self.content_area.addWidget(title)
 
         subjects = self.service.list_subjects()
-
-        # Aktif ders belirtilmemişse ilk dersi seç
         if active_id is None and subjects and subjects[0].id is not None:
             active_id = subjects[0].id
 
@@ -283,13 +312,11 @@ class ExpandedSidebar(QWidget):
         self.content_area.addWidget(btn_add)
 
     def _on_subject_clicked(self, sid: int, selected_item: SidebarItemWidget) -> None:
-        """Ders tıklandığında seçili butonun stilini günceller ve sinyali iletir."""
         for btn in self.subject_buttons.values():
             btn.set_active(btn is selected_item)
         self.subject_selected.emit(sid)
 
     def set_active_subject(self, sid: int) -> None:
-        """Dışarıdan çağrıldığında ilgili ders butonunu aktif yapar."""
         for s_id, btn in self.subject_buttons.items():
             btn.set_active(s_id == sid)
 

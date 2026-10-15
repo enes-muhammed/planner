@@ -1,4 +1,4 @@
-"""ui.py - 3 Katmanlı Modern Arayüz Düzeni."""
+"""ui.py - 3 Katmanlı Modern Arayüz Düzeni (4 Ana Sekme)."""
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
 from calendar_view import CalendarView
 from dialogs import AvailabilityDialog, ExamDialog, TimetableDialog
 from engine import PlannerService
+from roadmap_view import RoadmapView
 from sidebar import ExpandedSidebar, LeftNavRail
 from ui_common import UI_STYLESHEET, create_light_palette
 from views import SubjectsView, TasksView
@@ -40,7 +41,7 @@ class MainWindow(QMainWindow):
 
     def _setup_window(self) -> None:
         self.setWindowTitle("Dinamik Akademik Çalışma Planlayıcı")
-        self.resize(1300, 840)
+        self.resize(1340, 860)
         self.setStyleSheet(UI_STYLESHEET)
 
     def _setup_components(self) -> None:
@@ -50,7 +51,7 @@ class MainWindow(QMainWindow):
         # 2. Katman: Arkaplanla Birebir Aynı Şeffaf Genişletilmiş Sidebar
         self.expanded_sidebar = ExpandedSidebar(self.service, self)
 
-        # 3. Katman: Sağdaki Büyük Beyaz Kart (Çizgilerin sınıra dayanabilmesi için padding: 0px)
+        # 3. Katman: Sağdaki Büyük Beyaz Kart (Köşe kesilmesini önlemek için padding: 0px)
         self.main_stack = QStackedWidget()
         self.main_stack.setStyleSheet("""
             QStackedWidget {
@@ -60,14 +61,16 @@ class MainWindow(QMainWindow):
                 padding: 0px;
             }""")
 
-        # İç Görünümler
+        # 4 Ana Görünüm
         self.calendar_view = CalendarView(self.service)
+        self.roadmap_view = RoadmapView(self.service)
         self.subjects_view = SubjectsView(self.service)
         self.tasks_view = TasksView(self.service)
 
-        self.main_stack.addWidget(self.calendar_view)
-        self.main_stack.addWidget(self.subjects_view)
-        self.main_stack.addWidget(self.tasks_view)
+        self.main_stack.addWidget(self.calendar_view)  # Index 0
+        self.main_stack.addWidget(self.roadmap_view)   # Index 1
+        self.main_stack.addWidget(self.subjects_view)  # Index 2
+        self.main_stack.addWidget(self.tasks_view)     # Index 3
 
     def _setup_layout(self) -> None:
         central = QWidget()
@@ -82,7 +85,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
     def _connect_signals(self) -> None:
-        # Tab değişimi
+        # Sol çubuk sekme değişimi
         self.nav_rail.tab_changed.connect(self._on_tab_switched)
 
         # Sol rail'deki planlama işlemleri
@@ -92,11 +95,10 @@ class MainWindow(QMainWindow):
         self.expanded_sidebar.subject_selected.connect(self.subjects_view.select_subject)
         self.expanded_sidebar.subject_add_requested.connect(self._add_subject)
         self.expanded_sidebar.task_filter_selected.connect(self.tasks_view.set_filter)
+        self.expanded_sidebar.roadmap_filter_selected.connect(self.roadmap_view.set_filter)
 
-        # Ders güncellendiğinde sidebar'ı da tazele
-        self.subjects_view.subject_changed.connect(
-            lambda: self.expanded_sidebar.update_view(1, self.subjects_view.current_sid)
-        )
+        # Ders güncellendiğinde sidebar'ı ve yol haritasını tazele
+        self.subjects_view.subject_changed.connect(self._on_subject_changed)
 
         # Takvim planı değişince görevleri tazele
         self.calendar_view.plan_changed.connect(self.tasks_view.refresh)
@@ -110,16 +112,23 @@ class MainWindow(QMainWindow):
         if index == 0:
             self.calendar_view.refresh()
         elif index == 1:
-            self.subjects_view.refresh()
+            self.roadmap_view.refresh()
         elif index == 2:
+            self.subjects_view.refresh()
+        elif index == 3:
             self.tasks_view.refresh()
+
+    def _on_subject_changed(self) -> None:
+        self.expanded_sidebar.update_view(2, self.subjects_view.current_sid)
+        self.roadmap_view.refresh()
 
     def _add_subject(self) -> None:
         name, ok = QInputDialog.getText(self, "Yeni Ders", "Ders adı:")
         if ok and name.strip():
             self.service.add_subject(name.strip())
-            self.expanded_sidebar.update_view(1, self.subjects_view.current_sid)
+            self.expanded_sidebar.update_view(2, self.subjects_view.current_sid)
             self.subjects_view.refresh()
+            self.roadmap_view.refresh()
 
     def _on_planning_action(self, action: str) -> None:
         if action == "replan":
@@ -134,3 +143,4 @@ class MainWindow(QMainWindow):
     def _open_dialog(self, dialog_cls: type[QDialog]) -> None:
         dialog_cls(self.service, self).exec()
         self.calendar_view.refresh()
+        self.roadmap_view.refresh()

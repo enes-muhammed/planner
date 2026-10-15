@@ -2,14 +2,14 @@
 
 The chain implemented here:
 
-    Topic -> LearningEvent -> MemoryState -> Review Task -> Task Pool
+    Topic -> Subtopic -> LearningEvent (Outcomes) -> MemoryState -> Review Task -> Task Pool
           -> Availability -> Dynamic Scheduler -> StudySession -> Actual Result
 
 Sections
 --------
  0. Enums and configuration (every tunable number lives in EngineConfig)
  A. Domain models (+ generic row <-> dataclass codec)
- B. Memory engine   (answers: "when should this topic be reviewed?")
+ B. Memory engine   (answers: "when should this topic/subtopic be reviewed?")
  C. Task engine     (task factories, occurrence generation, splitting)
  D. Scheduler       (answers: "when in the student's real life should it happen?")
  E. Application service (the only thing ui.py talks to; uses database.py for all I/O)
@@ -29,7 +29,7 @@ from datetime import date, datetime, time, timedelta
 from enum import Enum
 from typing import Any, Mapping, Sequence
 
-from database import Database
+from database import Database, LINK_TABLE_CONFIG
 
 
 # =========================================================================== #
@@ -93,38 +93,52 @@ class UnscheduledReason(str, Enum):
     OUTSIDE_HORIZON = "OUTSIDE_HORIZON"
 
 
+class DayStatus(str, Enum):
+    OPEN = "OPEN"
+    CLOSED = "CLOSED"
+    HALF_DAY = "HALF_DAY"
+    EXAM_PERIOD = "EXAM_PERIOD"
+
+
+class AcademicEventType(str, Enum):
+    SEMESTER_START = "SEMESTER_START"
+    SEMESTER_END = "SEMESTER_END"
+    BREAK = "BREAK"
+    HOLIDAY = "HOLIDAY"
+    EXAM = "EXAM"
+    CUSTOM = "CUSTOM"
+
+
+class TermType(str, Enum):
+    SEMESTER = "SEMESTER"
+    QUARTER = "QUARTER"
+
+
 @dataclass(frozen=True)
 class MemoryConfig:
     """Initial EXPERIMENTAL memory-model parameters (not scientifically validated)."""
-    # recall score blending
     objective_weight: float = 0.75
     subjective_weight: float = 0.25
     rating_min: int = 1
     rating_max: int = 10
-    # (upper bound exclusive, multiplier); Q >= last bound -> top_multiplier
     multiplier_bands: tuple[tuple[float, float], ...] = (
         (0.40, 0.50), (0.60, 0.80), (0.80, 1.20), (0.90, 1.60))
     top_multiplier: float = 2.00
-    # stability
     stability_min_days: float = 1.0
     stability_max_days: float = 180.0
     initial_stability_days: float = 3.0
-    # difficulty
     initial_difficulty: float = 0.5
     difficulty_step: float = 0.10
     difficulty_neutral_q: float = 0.5
     difficulty_factor_base: float = 1.10
     difficulty_factor_slope: float = 0.20
     use_updated_difficulty_for_stability: bool = False
-    # forgetting model R(t) = 2^(-t/S)
     target_recall: float = 0.85
     min_interval_days: int = 1
     relearning_interval_days: int = 1
     failure_threshold_q: float = 0.40
-    # review window around the ideal date (a review date is NOT a hard deadline)
     window_days_before: int = 1
     window_days_after: int = 1
-    # review task defaults
     review_priority: int = 6
     review_minutes_first_topic: int = 30
     review_minutes_extra_topic: int = 15
@@ -149,26 +163,23 @@ class MemoryConfig:
 
 @dataclass(frozen=True)
 class TaskConfig:
-    default_minimum_session: int = 20     # for splittable tasks without an explicit minimum
+    default_minimum_session: int = 20
     max_priority: int = 10
     min_priority: int = 1
-    occurrence_horizon_days: int = 21     # how far ahead recurring occurrences are materialised
+    occurrence_horizon_days: int = 21
 
 
 @dataclass(frozen=True)
 class SchedulerConfig:
     """Initial EXPERIMENTAL scheduler parameters; all weights are tunable."""
     horizon_days: int = 14
-    # buffer: share of each day's PRIMARY capacity kept free (taken from the end of the day)
     buffer_fraction: float = 0.20
-    max_session_minutes: int = 120        # applies to splittable tasks only
-    # cost per minute of using a slot kind
+    max_session_minutes: int = 120
     slot_cost_primary: float = 0.0
     slot_cost_buffer: float = 1.0
     slot_cost_reserve: float = 2.0
     reserve_eligible_classes: tuple[TaskClass, ...] = (TaskClass.DEADLINE_TASK, TaskClass.RECURRING_TASK)
-    buffer_pressure_threshold: float = 0.6   # buffer may only be used by deadline items above this pressure
-    # ordering score weights (soft optimisation)
+    buffer_pressure_threshold: float = 0.6
     w_priority: float = 1.0
     w_deadline: float = 2.5
     w_review: float = 1.5
@@ -179,16 +190,15 @@ class SchedulerConfig:
     review_lateness_gain: float = 0.1
     review_lateness_cap: float = 0.5
     exam_horizon_days: int = 14
-    exam_pull_forward: bool = True        # ideal review date is pulled to exam_date - 1 for exam topics
+    exam_pull_forward: bool = True
     exam_pull_forward_days: int = 1
-    # placement cost (per minute) - time dimension
     review_early_cost_per_day: float = 0.3
     review_late_cost_per_day: float = 0.5
     review_outside_window_penalty: float = 1.0
     review_outside_window_per_day: float = 0.5
-    review_urgency_base: float = 0.5      # factor = base + urgency/10
-    review_max_early_days: int = 2        # never plan a review earlier than window start - this
-    review_day_cap_fraction: float = 0.5  # max share of a day's PRIMARY capacity used by reviews
+    review_urgency_base: float = 0.5
+    review_max_early_days: int = 2
+    review_day_cap_fraction: float = 0.5
     deadline_risk_weight: float = 1.0
     overdue_asap_cost_per_day: float = 0.1
     recurring_distance_cost_per_day: float = 0.3
@@ -209,7 +219,6 @@ class EngineConfig:
     scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
 
     def with_overrides(self, overrides: Mapping[str, Mapping[str, Any]]) -> "EngineConfig":
-        """``{"memory": {"target_recall": 0.9}, "scheduler": {...}}`` -> new config."""
         parts = {"memory": self.memory, "task": self.task, "scheduler": self.scheduler}
         for section, values in overrides.items():
             if section not in parts:
@@ -233,8 +242,8 @@ def _now() -> datetime:
 @dataclass(frozen=True)
 class RecurringRule:
     kind: RecurrenceKind
-    weekdays: tuple[int, ...] = ()        # 0 = Monday ... 6 = Sunday (WEEKDAYS)
-    times_per_week: int = 0               # TIMES_PER_WEEK
+    weekdays: tuple[int, ...] = ()
+    times_per_week: int = 0
     start_date: date | None = None
     end_date: date | None = None
 
@@ -309,14 +318,38 @@ class Topic:
 
 
 @dataclass
+class Subtopic:
+    name: str
+    topic_id: int
+    id: int | None = None
+    order_no: int = 1
+    notes: str = ""
+    created_at: datetime = field(default_factory=_now)
+
+
+@dataclass
+class LearningOutcome:
+    description: str
+    subtopic_id: int
+    id: int | None = None
+    code: str = ""
+    order_no: int = 1
+    is_covered: bool = False
+    covered_at: datetime | None = None
+    created_at: datetime = field(default_factory=_now)
+
+
+@dataclass
 class LearningEvent:
     topic_id: int
     event_date: date
     id: int | None = None
-    period_start: int | None = None      # school period numbers, e.g. 1-2
+    subtopic_id: int | None = None
+    period_start: int | None = None
     period_end: int | None = None
     notes: str = ""
     created_at: datetime = field(default_factory=_now)
+    outcome_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -326,13 +359,38 @@ class MemoryState:
     difficulty: float
     phase: MemoryPhase
     last_review_date: date
-    next_review_date: date               # IDEAL review date (not a hard deadline)
+    next_review_date: date
     review_count: int = 0
     lapse_count: int = 0
     last_objective_score: float | None = None
     last_subjective_score: float | None = None
     last_combined_score: float | None = None
     updated_at: datetime = field(default_factory=_now)
+
+
+@dataclass
+class AcademicTerm:
+    name: str
+    term_type: TermType
+    term_no: int
+    start_date: date
+    end_date: date
+    id: int | None = None
+    student_id: int = 1
+    created_at: datetime = field(default_factory=_now)
+
+
+@dataclass
+class AcademicCalendarEvent:
+    title: str
+    start_date: date
+    end_date: date
+    day_status: DayStatus
+    event_type: AcademicEventType
+    description: str = ""
+    id: int | None = None
+    student_id: int = 1
+    created_at: datetime = field(default_factory=_now)
 
 
 @dataclass
@@ -343,7 +401,8 @@ class Exam:
     student_id: int = 1
     subject_id: int | None = None
     notes: str = ""
-    topic_ids: list[int] = field(default_factory=list)   # not a column (exam_topic_links)
+    topic_ids: list[int] = field(default_factory=list)
+    subtopic_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -371,7 +430,8 @@ class Task:
     notes: str = ""
     created_at: datetime = field(default_factory=_now)
     updated_at: datetime = field(default_factory=_now)
-    topic_ids: list[int] = field(default_factory=list)   # not a column (task_topic_links)
+    topic_ids: list[int] = field(default_factory=list)
+    subtopic_ids: list[int] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.remaining_duration is None:
@@ -486,7 +546,7 @@ class RecallResult:
 
 # ---- generic row <-> dataclass codec ------------------------------------- #
 
-NON_COLUMN_FIELDS = {"topic_ids"}
+NON_COLUMN_FIELDS = {"topic_ids", "subtopic_ids", "outcome_ids"}
 
 
 def _unwrap_optional(hint: Any) -> Any:
@@ -501,7 +561,7 @@ def _encode(value: Any) -> Any:
         return None
     if isinstance(value, Enum):
         return value.value
-    if isinstance(value, datetime):          # must precede date (subclass)
+    if isinstance(value, datetime):
         return value.isoformat(timespec="seconds")
     if isinstance(value, date):
         return value.isoformat()
@@ -569,7 +629,6 @@ class MemoryEngine:
     def __init__(self, config: MemoryConfig = MemoryConfig()) -> None:
         self.cfg = config
 
-    # -- scores --------------------------------------------------------------
     def subjective_score(self, rating: int) -> float:
         c = self.cfg
         if not c.rating_min <= rating <= c.rating_max:
@@ -584,7 +643,6 @@ class MemoryEngine:
         return (c.objective_weight * objective_score
                 + c.subjective_weight * self.subjective_score(subjective_rating)) / total
 
-    # -- stability / difficulty ---------------------------------------------
     def performance_multiplier(self, q: float) -> float:
         for upper, mult in self.cfg.multiplier_bands:
             if q < upper:
@@ -603,13 +661,11 @@ class MemoryEngine:
         s = stability * self.performance_multiplier(q) * self.difficulty_factor(difficulty)
         return _clamp(s, c.stability_min_days, c.stability_max_days)
 
-    # -- forgetting curve ----------------------------------------------------
     @staticmethod
     def retrievability(stability_days: float, elapsed_days: float) -> float:
         return 2.0 ** (-elapsed_days / stability_days)
 
     def ideal_interval_days(self, stability_days: float) -> float:
-        """t such that R(t) = target_recall  ->  t = -S * log2(target)."""
         return -stability_days * math.log2(self.cfg.target_recall)
 
     def interval_days(self, stability_days: float, relearning: bool = False) -> int:
@@ -624,7 +680,6 @@ class MemoryEngine:
         latest = max(ideal + timedelta(days=self.cfg.window_days_after), earliest)
         return earliest, latest
 
-    # -- state transitions ---------------------------------------------------
     def initial_state(self, topic_id: int, event_date: date) -> MemoryState:
         c = self.cfg
         s = c.initial_stability_days
@@ -635,7 +690,6 @@ class MemoryEngine:
 
     def on_learning_event(self, state: MemoryState | None, topic_id: int,
                           event_date: date) -> MemoryState:
-        """New topic -> initial state.  Re-exposure restarts the clock, keeps stability."""
         if state is None:
             return self.initial_state(topic_id, event_date)
         last = max(state.last_review_date, event_date)
@@ -662,7 +716,6 @@ class MemoryEngine:
             last_combined_score=q, updated_at=_now())
 
     def review_urgency(self, state: MemoryState) -> float:
-        """0..10 urgency handed to the scheduler (memory-side information only)."""
         c = self.cfg
         u = c.urgency_base + c.urgency_difficulty_gain * state.difficulty
         if state.phase is MemoryPhase.RELEARNING:
@@ -679,30 +732,31 @@ class TaskEngine:
         self.cfg = config
         self.memory = MemoryEngine(config.memory)
 
-    # -- review tasks --------------------------------------------------------
-    def review_from_memory(self, state: MemoryState, topic: Topic,
+    def review_from_memory(self, state: MemoryState, topic_name: str, topic_id: int,
                            tags: Sequence[str] = ()) -> Task:
         m = self.cfg.memory
         earliest, latest = self.memory.review_window(state.next_review_date, state.last_review_date)
         dur = m.review_minutes_first_topic
         task = Task(
-            title=f"Tekrar: {topic.name}", task_class=TaskClass.REVIEW, duration=dur,
+            title=f"Tekrar: {topic_name}", task_class=TaskClass.REVIEW, duration=dur,
             priority=m.review_priority, ideal_date=state.next_review_date,
             earliest_date=earliest, latest_date=latest, splittable=False, minimum_session=dur,
             tags=["#Review", *tags], review_source=ReviewSource.AUTOMATIC,
-            urgency=self.memory.review_urgency(state), topic_ids=[topic.id] if topic.id else [])
+            urgency=self.memory.review_urgency(state), topic_ids=[topic_id])
         task.validate(self.cfg.task)
         return task
 
     def manual_review(self, title: str, topic_ids: Sequence[int], ideal_date: date,
                       duration: int | None = None, priority: int | None = None,
-                      tags: Sequence[str] = ()) -> Task:
+                      tags: Sequence[str] = (), subtopic_ids: Sequence[int] = ()) -> Task:
         m = self.cfg.memory
-        topics = list(dict.fromkeys(topic_ids))               # de-duplicate, keep order
-        if not topics:
-            raise ValueError("a manual review needs at least one topic")
+        topics = list(dict.fromkeys(topic_ids))
+        subtopics = list(dict.fromkeys(subtopic_ids))
+        if not topics and not subtopics:
+            raise ValueError("a manual review needs at least one topic or subtopic")
+        total_items = max(1, len(topics) + len(subtopics))
         dur = duration if duration is not None else (
-            m.review_minutes_first_topic + m.review_minutes_extra_topic * (len(topics) - 1))
+            m.review_minutes_first_topic + m.review_minutes_extra_topic * (total_items - 1))
         task = Task(
             title=title, task_class=TaskClass.REVIEW, duration=dur,
             priority=priority if priority is not None else m.review_priority,
@@ -711,11 +765,10 @@ class TaskEngine:
             latest_date=ideal_date + timedelta(days=m.window_days_after),
             splittable=False, minimum_session=dur, tags=["#Review", *tags],
             review_source=ReviewSource.MANUAL, urgency=m.urgency_base,
-            topic_ids=topics)
+            topic_ids=topics, subtopic_ids=subtopics)
         task.validate(self.cfg.task)
         return task
 
-    # -- deadline / recurring ------------------------------------------------
     def _resolve_min_session(self, duration: int, splittable: bool, minimum_session: int | None) -> int:
         if not splittable:
             return duration
@@ -725,26 +778,28 @@ class TaskEngine:
     def deadline_task(self, title: str, duration: int, deadline: date, priority: int = 5,
                       splittable: bool = True, minimum_session: int | None = None,
                       tags: Sequence[str] = (), topic_ids: Sequence[int] = (),
-                      delay_cost: float = 0.0, exam_id: int | None = None) -> Task:
+                      subtopic_ids: Sequence[int] = (), delay_cost: float = 0.0,
+                      exam_id: int | None = None) -> Task:
         task = Task(
             title=title, task_class=TaskClass.DEADLINE_TASK, duration=duration,
             priority=priority, deadline=deadline, splittable=splittable,
             minimum_session=self._resolve_min_session(max(duration, 1), splittable, minimum_session),
-            tags=list(tags), topic_ids=list(topic_ids), delay_cost=delay_cost, exam_id=exam_id)
+            tags=list(tags), topic_ids=list(topic_ids), subtopic_ids=list(subtopic_ids),
+            delay_cost=delay_cost, exam_id=exam_id)
         task.validate(self.cfg.task)
         return task
 
     def recurring_task(self, title: str, duration: int, rule: RecurringRule, priority: int = 5,
-                       tags: Sequence[str] = (), topic_ids: Sequence[int] = ()) -> Task:
+                       tags: Sequence[str] = (), topic_ids: Sequence[int] = (),
+                       subtopic_ids: Sequence[int] = ()) -> Task:
         task = Task(
             title=title, task_class=TaskClass.RECURRING_TASK, duration=duration, priority=priority,
             recurring_rule=rule, splittable=False, minimum_session=duration,
-            tags=list(tags), topic_ids=list(topic_ids))
+            tags=list(tags), topic_ids=list(topic_ids), subtopic_ids=list(subtopic_ids))
         task.validate(self.cfg.task)
         return task
 
     def generate_occurrences(self, task: Task, task_id: int, start: date, end: date) -> list[TaskOccurrence]:
-        """Occurrences with nominal date in [start, end] (recurrence rule is respected)."""
         rule = task.recurring_rule
         if rule is None or end < start:
             return []
@@ -763,7 +818,7 @@ class TaskEngine:
                     out.append(make(d, d, d))
                 d += timedelta(days=1)
             return out
-        # TIMES_PER_WEEK: N nominal days spread over each Monday-Sunday week, window = whole week
+
         n = rule.times_per_week
         week = lo - timedelta(days=lo.weekday())
         while week <= hi:
@@ -780,10 +835,6 @@ class TaskEngine:
 
     @staticmethod
     def split_duration(total: int, minimum: int, maximum: int) -> list[int]:
-        """Evenly split ``total`` minutes into chunks within [minimum, maximum].
-
-        If total < minimum the whole task stays one chunk. Deterministic.
-        """
         if total <= 0:
             raise ValueError("total must be > 0")
         if minimum <= 0 or maximum < minimum:
@@ -811,11 +862,11 @@ class BusyInterval:
 @dataclass
 class SchedulerInput:
     today: date
-    now_minute: int                      # minutes since midnight; earlier time today is unusable
+    now_minute: int
     tasks: list[Task]
     occurrences: list[TaskOccurrence] = field(default_factory=list)
     availability: list[AvailabilityBlock] = field(default_factory=list)
-    busy: list[BusyInterval] = field(default_factory=list)   # completed sessions etc.
+    busy: list[BusyInterval] = field(default_factory=list)
     exams: list[Exam] = field(default_factory=list)
 
 
@@ -857,7 +908,7 @@ class UnscheduledItem:
 @dataclass
 class DayStats:
     day: date
-    primary_capacity: int = 0      # PRIMARY minutes of the day (before buffer carve-out)
+    primary_capacity: int = 0
     buffer_minutes: int = 0
     planned_primary: int = 0
     planned_buffer: int = 0
@@ -936,9 +987,9 @@ class _Item:
     occurrence: TaskOccurrence | None
     remaining: int
     min_session: int
-    start: date                      # hard candidate window
+    start: date
     end: date
-    ideal: date | None = None        # reviews: effective ideal date
+    ideal: date | None = None
     earliest: date | None = None
     latest: date | None = None
     deadline: date | None = None
@@ -981,7 +1032,6 @@ class Scheduler:
     def __init__(self, config: SchedulerConfig = SchedulerConfig()) -> None:
         self.cfg = config
 
-    # ------------------------------------------------------------------ main
     def schedule(self, inp: SchedulerInput) -> SchedulePlan:
         cfg = self.cfg
         horizon_end = inp.today + timedelta(days=cfg.horizon_days - 1)
@@ -1029,7 +1079,6 @@ class Scheduler:
         plan.sessions.sort(key=lambda s: (s.day, s.start_min, s.task_id))
         return plan
 
-    # -------------------------------------------------------------- segments
     def _build_segments(self, inp: SchedulerInput, horizon_end: date
                         ) -> tuple[dict[date, list[_Segment]], dict[date, DayStats]]:
         by_day: dict[date, list[AvailabilityBlock]] = {}
@@ -1064,7 +1113,7 @@ class Scheduler:
             segments: list[_Segment] = []
             buffer_left = buffer_target
             buffer_segments: list[_Segment] = []
-            for s, e in reversed(primary):            # carve buffer from the END of the day
+            for s, e in reversed(primary):
                 take = min(buffer_left, e - s)
                 if take > 0:
                     buffer_segments.append(_Segment(day, e - take, e, SlotKind.BUFFER))
@@ -1080,7 +1129,6 @@ class Scheduler:
             day += timedelta(days=1)
         return segs, stats
 
-    # ----------------------------------------------------------------- items
     def _build_items(self, inp: SchedulerInput, segs: dict[date, list[_Segment]],
                      horizon_end: date, plan: SchedulePlan) -> list[_Item]:
         cfg = self.cfg
@@ -1111,7 +1159,7 @@ class Scheduler:
                         continue
                     start, end = max(today, earliest), min(latest, horizon_end)
                     if start > end:
-                        continue                          # beyond horizon: not due yet
+                        continue
                     items.append(self._finish_item(_Item(
                         task=task, occurrence=occ, remaining=occ.remaining_duration or 0,
                         min_session=occ.remaining_duration or 0, start=start, end=end,
@@ -1138,12 +1186,12 @@ class Scheduler:
                         latest = max(ideal, min(latest, exam_date))
                 start = max(today, earliest - timedelta(days=cfg.review_max_early_days))
                 if start > horizon_end:
-                    continue                              # not due within the horizon
+                    continue
                 items.append(self._finish_item(_Item(
                     task=task, occurrence=None, remaining=remaining, min_session=min_session,
                     start=start, end=horizon_end, ideal=ideal, earliest=earliest, latest=latest,
                     exam_date=exam_date), segs, today))
-            else:  # DEADLINE_TASK
+            else:
                 deadline = task.deadline or horizon_end
                 overdue = deadline < today
                 start = max(today, task.earliest_date or today)
@@ -1158,7 +1206,6 @@ class Scheduler:
         return items
 
     def _finish_item(self, it: _Item, segs: dict[date, list[_Segment]], today: date) -> _Item:
-        """Compute pressure, ordering score and slot-kind eligibility."""
         cfg = self.cfg
         task = it.task
         score = cfg.w_priority * task.priority / 10.0 + cfg.w_delay_cost * task.delay_cost / 10.0
@@ -1189,7 +1236,6 @@ class Scheduler:
 
     @staticmethod
     def _exam_lookup(inp: SchedulerInput) -> dict[int, date]:
-        """topic_id -> nearest upcoming exam date."""
         result: dict[int, date] = {}
         for ex in sorted(inp.exams, key=lambda e: e.exam_date):
             if ex.exam_date < inp.today:
@@ -1205,7 +1251,6 @@ class Scheduler:
             dates += [e.exam_date for e in exams if e.id == task.exam_id and e.exam_date >= today]
         return min(dates) if dates else None
 
-    # ------------------------------------------------------------ candidates
     def _eligible(self, item: _Item, seg: _Segment) -> bool:
         if seg.free <= 0:
             return False
@@ -1229,7 +1274,7 @@ class Scheduler:
         m = item.min_session
         if length < m:
             return 0
-        if remaining - length < m:                      # avoid orphaning a tiny remainder
+        if remaining - length < m:
             shorter = remaining - m
             if shorter >= m:
                 return shorter
@@ -1286,7 +1331,6 @@ class Scheduler:
                                  kind_cost, time_cost, load_cost, split_cost))
         return out
 
-    # ---------------------------------------------------------- explanations
     def _explain(self, item: _Item, best: _Cand, cands: list[_Cand], remaining_after: int) -> str:
         day, seg = best.day, best.seg
         parts = [f"{item.klass.value}: {item.label}",
@@ -1357,6 +1401,9 @@ class LearningEventView:
     topic_name: str
     unit_id: int | None = None
     unit_name: str | None = None
+    subtopic_id: int | None = None
+    subtopic_name: str | None = None
+    outcomes: list[LearningOutcome] = field(default_factory=list)
 
 
 @dataclass
@@ -1365,6 +1412,8 @@ class MemoryView:
     state: MemoryState
     unit_id: int | None = None
     unit_name: str | None = None
+    subtopic_id: int | None = None
+    subtopic_name: str | None = None
 
 
 @dataclass
@@ -1374,7 +1423,6 @@ class SessionView:
     task_class: TaskClass
 
     def display_state(self, now: datetime) -> str:
-        """completed / overdue / planned (overdue = start passed without completion)."""
         s = self.session
         if s.status is SessionStatus.COMPLETED:
             return "completed"
@@ -1391,6 +1439,11 @@ class PlannerService:
         self.config = config.with_overrides(json.loads(raw)) if raw else config
         self._build_engines()
         self.student_id = self._ensure_student()
+        # 2026-2027 MEB & Diyanet takvimini veritabanına otomatik tohumla
+        try:
+            self.db.seed_default_academic_calendar(self.student_id)
+        except Exception:
+            pass
         self.last_plan: SchedulePlan | None = None
 
     def _build_engines(self) -> None:
@@ -1399,8 +1452,7 @@ class PlannerService:
         self.scheduler = Scheduler(self.config.scheduler)
 
     def update_config(self, overrides: Mapping[str, Mapping[str, Any]]) -> None:
-        """Persist scalar parameter overrides, e.g. {'scheduler': {'buffer_fraction': 0.3}}."""
-        new = self.config.with_overrides(overrides)       # validates
+        new = self.config.with_overrides(overrides)
         merged = json.loads(self.db.get_setting("config_overrides", "{}") or "{}")
         for section, values in overrides.items():
             merged.setdefault(section, {}).update(values)
@@ -1510,6 +1562,88 @@ class PlannerService:
         topic.id = self.db.insert("topics", model_to_row(topic))
         return topic
 
+    # ------------------------------------------------------------ subtopics
+    def list_subtopics(self, topic_id: int) -> list[Subtopic]:
+        rows = self.db.subtopics_for_topic(topic_id)
+        return [row_to_model(Subtopic, r) for r in rows]
+
+    def list_subtopics_by_unit(self, unit_id: int) -> list[Subtopic]:
+        rows = self.db.subtopics_for_unit(unit_id)
+        return [row_to_model(Subtopic, r) for r in rows]
+
+    def add_subtopic(self, topic_id: int, name: str, order_no: int | None = None, notes: str = "") -> Subtopic:
+        name = name.strip()
+        if not name:
+            raise ValueError("alt konu adı boş olamaz")
+        if order_no is None:
+            existing = self.list_subtopics(topic_id)
+            order_no = (max((st.order_no for st in existing), default=0) + 1)
+        subtopic = Subtopic(name=name, topic_id=topic_id, order_no=order_no, notes=notes.strip())
+        subtopic.id = self.db.insert("subtopics", model_to_row(subtopic))
+        return subtopic
+
+    def get_or_create_subtopic(self, topic_id: int, name: str) -> Subtopic:
+        name = name.strip()
+        if not name:
+            raise ValueError("alt konu adı boş olamaz")
+        rows = self.db.select("subtopics", {"topic_id": topic_id, "name": name})
+        if rows:
+            return row_to_model(Subtopic, rows[0])
+        return self.add_subtopic(topic_id, name)
+
+    def rename_subtopic(self, subtopic_id: int, name: str) -> None:
+        name = name.strip()
+        if not name:
+            raise ValueError("alt konu adı boş olamaz")
+        self.db.update("subtopics", subtopic_id, {"name": name})
+
+    def update_subtopic(self, subtopic_id: int, **kwargs: Any) -> None:
+        vals: dict[str, Any] = {}
+        if "name" in kwargs and kwargs["name"] is not None:
+            n = str(kwargs["name"]).strip()
+            if not n:
+                raise ValueError("alt konu adı boş olamaz")
+            vals["name"] = n
+        for k in ("order_no", "notes"):
+            if k in kwargs:
+                vals[k] = kwargs[k]
+        if vals:
+            self.db.update("subtopics", subtopic_id, vals)
+
+    def delete_subtopic(self, subtopic_id: int) -> None:
+        self.db.delete("subtopics", {"id": subtopic_id})
+
+    # ---------------------------------------------------- learning outcomes
+    def list_outcomes(self, subtopic_id: int) -> list[LearningOutcome]:
+        rows = self.db.outcomes_for_subtopic(subtopic_id)
+        return [row_to_model(LearningOutcome, r) for r in rows]
+
+    def add_outcome(self, subtopic_id: int, description: str, code: str = "", order_no: int | None = None) -> LearningOutcome:
+        desc = description.strip()
+        if not desc:
+            raise ValueError("kazanım açıklaması boş olamaz")
+        if order_no is None:
+            existing = self.list_outcomes(subtopic_id)
+            order_no = (max((o.order_no for o in existing), default=0) + 1)
+        outcome = LearningOutcome(description=desc, subtopic_id=subtopic_id, code=code.strip(), order_no=order_no)
+        outcome.id = self.db.insert("learning_outcomes", model_to_row(outcome))
+        return outcome
+
+    def toggle_outcome(self, outcome_id: int, is_covered: bool | None = None) -> LearningOutcome:
+        row = self.db.get("learning_outcomes", outcome_id)
+        if not row:
+            raise ValueError("kazanım bulunamadı")
+        curr = bool(row["is_covered"])
+        new_val = (not curr) if is_covered is None else is_covered
+        covered_at = _encode(_now()) if new_val else None
+        self.db.update("learning_outcomes", outcome_id, {"is_covered": int(new_val), "covered_at": covered_at})
+        row["is_covered"] = int(new_val)
+        row["covered_at"] = covered_at
+        return row_to_model(LearningOutcome, row)
+
+    def delete_outcome(self, outcome_id: int) -> None:
+        self.db.delete("learning_outcomes", {"id": outcome_id})
+
     def topic_labels(self, topic_ids: Sequence[int]) -> list[str]:
         out = []
         for tid in topic_ids:
@@ -1519,32 +1653,92 @@ class PlannerService:
                 out.append(f"{subj['name'] if subj else '?'} / {row['name']}")
         return out
 
+    def subtopic_labels(self, subtopic_ids: Sequence[int]) -> list[str]:
+        out = []
+        for stid in subtopic_ids:
+            row = self.db.get("subtopics", stid)
+            if row:
+                trow = self.db.get("topics", row["topic_id"])
+                sname = trow["name"] if trow else "?"
+                out.append(f"{sname} / {row['name']}")
+        return out
+
     # ------------------------------------------------------ learning events
     def list_learning_events(self, subject_id: int) -> list[LearningEventView]:
-        return [LearningEventView(
-                    row_to_model(LearningEvent, r),
-                    r["topic_name"],
-                    r.get("unit_id"),
-                    r.get("unit_name"))
-                for r in self.db.learning_events_for_subject(subject_id)]
+        raw_events = self.db.learning_events_for_subject(subject_id)
+        event_outcomes_map = self.db.topic_link_map("learning_event_outcomes")
+
+        out = []
+        for r in raw_events:
+            ev = row_to_model(LearningEvent, r)
+            ev_id = ev.id or 0
+            outcome_ids = event_outcomes_map.get(ev_id, [])
+            ev.outcome_ids = outcome_ids
+
+            outcomes_models = []
+            for oid in outcome_ids:
+                orow = self.db.get("learning_outcomes", oid)
+                if orow:
+                    outcomes_models.append(row_to_model(LearningOutcome, orow))
+
+            out.append(LearningEventView(
+                event=ev,
+                topic_name=r["topic_name"],
+                unit_id=r.get("unit_id"),
+                unit_name=r.get("unit_name"),
+                subtopic_id=r.get("subtopic_id"),
+                subtopic_name=r.get("subtopic_name"),
+                outcomes=outcomes_models
+            ))
+        return out
 
     def add_learning_event(self, subject_id: int, event_date: date, topic_name: str,
                            period_start: int | None = None, period_end: int | None = None,
-                           notes: str = "", unit_id: int | None = None) -> LearningEvent:
-        """Subject -> Unit / Topic -> LearningEvent -> MemoryState -> automatic Review task."""
+                           notes: str = "", unit_id: int | None = None,
+                           subtopic_name: str | None = None,
+                           outcome_ids: Sequence[int] = ()) -> LearningEvent:
+        """Subject -> Unit -> Topic -> Subtopic -> LearningEvent -> Kazanımlar & FSRS."""
         if period_start is not None and period_end is not None and period_end < period_start:
             raise ValueError("ders saati bitişi başlangıçtan önce olamaz")
         with self.db.transaction():
             topic = self.get_or_create_topic(subject_id, topic_name, unit_id=unit_id)
             assert topic.id is not None
-            ev = LearningEvent(topic_id=topic.id, event_date=event_date, period_start=period_start,
-                               period_end=period_end, notes=notes.strip())
+
+            subtopic_id: int | None = None
+            if subtopic_name and subtopic_name.strip():
+                st = self.get_or_create_subtopic(topic.id, subtopic_name.strip())
+                subtopic_id = st.id
+
+            ev = LearningEvent(
+                topic_id=topic.id,
+                subtopic_id=subtopic_id,
+                event_date=event_date,
+                period_start=period_start,
+                period_end=period_end,
+                notes=notes.strip()
+            )
             ev.id = self.db.insert("learning_events", model_to_row(ev))
+
+            if outcome_ids:
+                self.db.set_links("learning_event_outcomes", ev.id, outcome_ids)
+                for oid in outcome_ids:
+                    self.db.update("learning_outcomes", oid, {
+                        "is_covered": 1,
+                        "covered_at": _encode(datetime.combine(event_date, time(0, 0)))
+                    })
+
+            # FSRS Hafıza Güncellemesi
             row = self.db.get("memory_states", topic.id, key="topic_id")
             old = row_to_model(MemoryState, row) if row else None
             new = self.memory.on_learning_event(old, topic.id, event_date)
             self.db.upsert("memory_states", model_to_row(new), conflict="topic_id")
             self._sync_review_task(topic.id)
+
+            if subtopic_id:
+                srow = self.db.get("subtopic_memory_states", subtopic_id, key="subtopic_id")
+                sold = row_to_model(MemoryState, srow) if srow else None
+                snew = self.memory.on_learning_event(sold, subtopic_id, event_date)
+                self.db.upsert("subtopic_memory_states", model_to_row(snew), conflict="subtopic_id")
         return ev
 
     def delete_learning_event(self, event_id: int) -> None:
@@ -1558,10 +1752,28 @@ class PlannerService:
                     r.get("unit_name"))
                 for r in self.db.memory_states_for_subject(subject_id)]
 
+    def list_subtopic_memory(self, subject_id: int) -> list[MemoryView]:
+        return [MemoryView(
+                    r["topic_name"],
+                    row_to_model(MemoryState, r),
+                    r.get("unit_id"),
+                    r.get("unit_name"),
+                    r.get("subtopic_id"),
+                    r.get("subtopic_name"))
+                for r in self.db.subtopic_memory_states_for_subject(subject_id)]
+
     # ----------------------------------------------------------------- tasks
-    def _task_from_row(self, row: Mapping[str, Any], links: Mapping[int, list[int]] | None = None) -> Task:
-        links = links if links is not None else self.db.topic_link_map("task_topic_links")
-        return row_to_model(Task, row, topic_ids=list(links.get(int(row["id"]), [])))
+    def _task_from_row(self, row: Mapping[str, Any],
+                       t_links: Mapping[int, list[int]] | None = None,
+                       st_links: Mapping[int, list[int]] | None = None) -> Task:
+        t_links = t_links if t_links is not None else self.db.topic_link_map("task_topic_links")
+        st_links = st_links if st_links is not None else self.db.topic_link_map("task_subtopic_links")
+        t_id = int(row["id"])
+        return row_to_model(
+            Task, row,
+            topic_ids=list(t_links.get(t_id, [])),
+            subtopic_ids=list(st_links.get(t_id, []))
+        )
 
     def get_task(self, task_id: int) -> Task | None:
         row = self.db.get("tasks", task_id)
@@ -1571,7 +1783,9 @@ class PlannerService:
         task.student_id = self.student_id
         task.validate(self.config.task)
         task.id = self.db.insert("tasks", model_to_row(task))
-        self.db.set_topic_links("task_topic_links", task.id, task.topic_ids)
+        self.db.set_links("task_topic_links", task.id, task.topic_ids)
+        if task.subtopic_ids:
+            self.db.set_links("task_subtopic_links", task.id, task.subtopic_ids)
         return task.id
 
     def update_task(self, task: Task) -> None:
@@ -1583,7 +1797,8 @@ class PlannerService:
         row.pop("id", None)
         with self.db.transaction():
             self.db.update("tasks", task.id, row)
-            self.db.set_topic_links("task_topic_links", task.id, task.topic_ids)
+            self.db.set_links("task_topic_links", task.id, task.topic_ids)
+            self.db.set_links("task_subtopic_links", task.id, task.subtopic_ids)
 
     def add_deadline_task(self, **kwargs: Any) -> Task:
         task = self.tasks.deadline_task(**kwargs)
@@ -1613,8 +1828,9 @@ class PlannerService:
 
     def list_tasks(self, view: str = "all", today: date | None = None) -> list[Task]:
         today = today or date.today()
-        links = self.db.topic_link_map("task_topic_links")
-        tasks = [self._task_from_row(r, links) for r in self.db.select("tasks", order_by=["id"])]
+        t_links = self.db.topic_link_map("task_topic_links")
+        st_links = self.db.topic_link_map("task_subtopic_links")
+        tasks = [self._task_from_row(r, t_links, st_links) for r in self.db.select("tasks", order_by=["id"])]
         P = TaskStatus.PENDING
 
         def sort_key(t: Task) -> tuple[date, int]:
@@ -1643,7 +1859,7 @@ class PlannerService:
         state = row_to_model(MemoryState, row)
         topic = row_to_model(Topic, trow)
         subj = self.db.get("subjects", topic.subject_id)
-        new = self.tasks.review_from_memory(state, topic, tags=[f"#{subj['name']}"] if subj else [])
+        new = self.tasks.review_from_memory(state, topic.name, topic.id or 0, tags=[f"#{subj['name']}"] if subj else [])
         existing = self.db.find_review_tasks(topic_id, ReviewSource.AUTOMATIC.value)
         if existing:
             self.db.update("tasks", existing[0]["id"], {
@@ -1662,9 +1878,10 @@ class PlannerService:
     # ----------------------------------------------------------- occurrences
     def _materialize_occurrences(self, today: date) -> None:
         horizon = today + timedelta(days=self.config.task.occurrence_horizon_days)
-        links = self.db.topic_link_map("task_topic_links")
+        t_links = self.db.topic_link_map("task_topic_links")
+        st_links = self.db.topic_link_map("task_subtopic_links")
         for row in self.db.select("tasks", {"task_class": "RECURRING_TASK", "status": "PENDING"}):
-            task = self._task_from_row(row, links)
+            task = self._task_from_row(row, t_links, st_links)
             assert task.id is not None
             have = {r["occurrence_date"] for r in self.db.select("task_occurrences", {"task_id": task.id})}
             for occ in self.tasks.generate_occurrences(task, task.id, today, horizon):
@@ -1706,7 +1923,9 @@ class PlannerService:
         return [row_to_model(SchoolTimetableEntry, r) for r in rows]
 
     def list_school_lessons(self, start: date, end: date) -> list[SchoolLesson]:
-        """Expand the fixed weekly timetable into dated lessons for a calendar range."""
+        """Haftalık ders programını tarihlere açar.
+        MEB resmi tatillerini, ara tatilleri ve yarım günleri otomatik hesaba katar.
+        """
         entries = self.list_timetable()
         subjects = {s.id: s.name for s in self.list_subjects()}
         subject_order: dict[tuple[int, int], int] = {}
@@ -1726,10 +1945,35 @@ class PlannerService:
         for entry in entries:
             by_weekday.setdefault(entry.weekday, []).append(entry)
 
+        # Akademik takvim tatillerini ve yarım günleri çek
+        cal_events = self.db.academic_calendar_events_for_range(
+            start.isoformat(), end.isoformat(), self.student_id
+        )
+
         lessons: list[SchoolLesson] = []
         for day in _days(start, end):
+            day_iso = day.isoformat()
+            matching_events = [
+                e for e in cal_events
+                if e["start_date"] <= day_iso <= e["end_date"]
+            ]
+
+            day_status = DayStatus.OPEN
+            if any(e["day_status"] == DayStatus.CLOSED.value for e in matching_events):
+                day_status = DayStatus.CLOSED
+            elif any(e["day_status"] == DayStatus.HALF_DAY.value for e in matching_events):
+                day_status = DayStatus.HALF_DAY
+
+            # Okul tatili ise bu güne ders konulmaz
+            if day_status is DayStatus.CLOSED:
+                continue
+
             for entry in by_weekday.get(day.weekday(), []):
-                ordinal = subject_order[(entry.weekday, entry.period_no)]
+                # Yarım gün (arife) ise öğleden sonraki (12:45 sonrası) dersleri atla
+                if day_status is DayStatus.HALF_DAY and entry.start_time >= time(12, 45):
+                    continue
+
+                ordinal = subject_order.get((entry.weekday, entry.period_no), 1)
                 lessons.append(SchoolLesson(
                     lesson_date=day,
                     period_no=entry.period_no,
@@ -1737,7 +1981,7 @@ class PlannerService:
                     start_time=entry.start_time,
                     end_time=entry.end_time,
                     subject_id=entry.subject_id,
-                    subject_name=subjects[entry.subject_id],
+                    subject_name=subjects.get(entry.subject_id, "?"),
                     recorded_topic=recorded.get((entry.subject_id, day, ordinal)),
                 ))
         return lessons
@@ -1753,21 +1997,60 @@ class PlannerService:
     def delete_timetable_entry(self, entry_id: int) -> None:
         self.db.delete("school_timetable", {"id": entry_id})
 
+    # ------------------------------------------------------- academic calendar
+    def list_academic_terms(self) -> list[AcademicTerm]:
+        rows = self.db.academic_terms(self.student_id)
+        return [row_to_model(AcademicTerm, r) for r in rows]
+
+    def list_academic_events(self, start: date, end: date) -> list[AcademicCalendarEvent]:
+        rows = self.db.academic_calendar_events_for_range(start.isoformat(), end.isoformat(), self.student_id)
+        return [row_to_model(AcademicCalendarEvent, r) for r in rows]
+
+    def get_school_status(self, target_date: date) -> tuple[DayStatus, str]:
+        row = self.db.school_status_for_date(target_date.isoformat(), self.student_id)
+        if not row:
+            return DayStatus.OPEN, "Okul Var"
+        return DayStatus(row["day_status"]), row["title"]
+
+    def add_academic_event(self, title: str, start_date: date, end_date: date,
+                           day_status: DayStatus, event_type: AcademicEventType,
+                           description: str = "") -> AcademicCalendarEvent:
+        title = title.strip()
+        if not title:
+            raise ValueError("etkinlik başlığı boş olamaz")
+        ev = AcademicCalendarEvent(
+            title=title, start_date=start_date, end_date=end_date,
+            day_status=day_status, event_type=event_type, description=description.strip(),
+            student_id=self.student_id
+        )
+        ev.id = self.db.insert("academic_calendar_events", model_to_row(ev))
+        return ev
+
+    def delete_academic_event(self, event_id: int) -> None:
+        self.db.delete("academic_calendar_events", {"id": event_id})
+
     # ----------------------------------------------------------------- exams
     def list_exams(self) -> list[Exam]:
-        links = self.db.topic_link_map("exam_topic_links")
+        t_links = self.db.topic_link_map("exam_topic_links")
+        st_links = self.db.topic_link_map("exam_subtopic_links")
         rows = self.db.select("exams", {"student_id": self.student_id}, ["exam_date", "id"])
-        return [row_to_model(Exam, r, topic_ids=links.get(int(r["id"]), [])) for r in rows]
+        return [row_to_model(
+            Exam, r,
+            topic_ids=t_links.get(int(r["id"]), []),
+            subtopic_ids=st_links.get(int(r["id"]), [])
+        ) for r in rows]
 
     def add_exam(self, title: str, exam_date: date, subject_id: int | None = None,
-                 topic_ids: Sequence[int] = ()) -> Exam:
+                 topic_ids: Sequence[int] = (), subtopic_ids: Sequence[int] = ()) -> Exam:
         if not title.strip():
             raise ValueError("sınav başlığı boş olamaz")
         ex = Exam(title=title.strip(), exam_date=exam_date, student_id=self.student_id,
-                  subject_id=subject_id, topic_ids=list(topic_ids))
+                  subject_id=subject_id, topic_ids=list(topic_ids), subtopic_ids=list(subtopic_ids))
         with self.db.transaction():
             ex.id = self.db.insert("exams", model_to_row(ex))
-            self.db.set_topic_links("exam_topic_links", ex.id, ex.topic_ids)
+            self.db.set_links("exam_topic_links", ex.id, ex.topic_ids)
+            if ex.subtopic_ids:
+                self.db.set_links("exam_subtopic_links", ex.id, ex.subtopic_ids)
         return ex
 
     def delete_exam(self, exam_id: int) -> None:
@@ -1776,8 +2059,9 @@ class PlannerService:
     # -------------------------------------------------------------- planning
     def _build_input(self, today: date, now_minute: int) -> SchedulerInput:
         horizon_end = today + timedelta(days=self.config.scheduler.horizon_days - 1)
-        links = self.db.topic_link_map("task_topic_links")
-        tasks = [self._task_from_row(r, links)
+        t_links = self.db.topic_link_map("task_topic_links")
+        st_links = self.db.topic_link_map("task_subtopic_links")
+        tasks = [self._task_from_row(r, t_links, st_links)
                  for r in self.db.select("tasks", {"status": "PENDING"}, ["id"])]
         occs = [row_to_model(TaskOccurrence, r) for r in self.db.select("task_occurrences", {"status": "PENDING"})]
         availability = self.list_availability(today, horizon_end)
@@ -1791,7 +2075,6 @@ class PlannerService:
                               availability=availability, busy=busy, exams=self.list_exams())
 
     def replan(self, now: datetime | None = None) -> SchedulePlan:
-        """(Re)build the plan from `now` on. Safe to call at any time (dynamic replanning)."""
         now = now or datetime.now()
         today = now.date()
         with self.db.transaction():
@@ -1827,11 +2110,6 @@ class PlannerService:
     def complete_session(self, session_id: int, actual_minutes: int,
                          results: Mapping[int, RecallResult] | None = None,
                          finished: bool = False, now: datetime | None = None) -> None:
-        """Record the Actual Result of a session.
-
-        remaining_duration -= actual_minutes (or 0 if `finished`).  A REVIEW that reaches
-        0 needs one RecallResult per topic; it updates MemoryState and the next review task.
-        """
         if actual_minutes <= 0:
             raise ValueError("gerçek süre 0'dan büyük olmalı")
         now = now or datetime.now()
@@ -1851,13 +2129,15 @@ class PlannerService:
 
             objective: float | None = None
             rating: int | None = None
+            all_target_ids = task.topic_ids or task.subtopic_ids
             if task.task_class is TaskClass.REVIEW and new_remaining == 0:
                 results = results or {}
-                missing = [t for t in task.topic_ids if t not in results]
+                missing = [t for t in all_target_ids if t not in results]
                 if missing:
                     raise ValueError("review tamamlamak için her konunun hatırlama sonucu gerekli")
-                objective = sum(results[t].objective_score for t in task.topic_ids) / len(task.topic_ids)
-                rating = round(sum(results[t].subjective_rating for t in task.topic_ids) / len(task.topic_ids))
+                if all_target_ids:
+                    objective = sum(results[t].objective_score for t in all_target_ids) / len(all_target_ids)
+                    rating = round(sum(results[t].subjective_rating for t in all_target_ids) / len(all_target_ids))
 
             self.db.update("study_sessions", session_id, {
                 "status": SessionStatus.COMPLETED.value, "actual_minutes": actual_minutes,
@@ -1882,6 +2162,13 @@ class PlannerService:
                     updated = self.memory.apply_review(row_to_model(MemoryState, mrow), results[tid], now.date())
                     self.db.upsert("memory_states", model_to_row(updated), conflict="topic_id")
                     self._sync_review_task(tid)
+
+                for stid in task.subtopic_ids:
+                    srow = self.db.get("subtopic_memory_states", stid, key="subtopic_id")
+                    if srow is None:
+                        continue
+                    supdated = self.memory.apply_review(row_to_model(MemoryState, srow), results[stid], now.date())
+                    self.db.upsert("subtopic_memory_states", model_to_row(supdated), conflict="subtopic_id")
 
     def skip_session(self, session_id: int) -> None:
         self.db.update("study_sessions", session_id, {"status": SessionStatus.SKIPPED.value})
