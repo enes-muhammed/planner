@@ -642,7 +642,6 @@ class Database:
             events = [
                 ("Okul Açılışı", "2026-09-14", "2026-09-14", "OPEN", "SEMESTER_START", "2026-2027 Eğitim Öğretim Yılı Başlangıcı"),
                 ("Cumhuriyet Bayramı Arifesi", "2026-10-28", "2026-10-28", "HALF_DAY", "HOLIDAY", "28 Ekim Öğleden Sonra Tatil"),
-                ("Test", "2026-10-16", "2026-10-16", "CLOSED", "HOLIDAY", "test tatili"),
                 ("Cumhuriyet Bayramı", "2026-10-29", "2026-10-29", "CLOSED", "HOLIDAY", "29 Ekim Cumhuriyet Bayramı"),
                 ("1. Ara Tatil", "2026-11-16", "2026-11-20", "CLOSED", "BREAK", "1. Dönem Ara Tatili"),
                 ("Yılbaşı Tatili", "2027-01-01", "2027-01-01", "CLOSED", "HOLIDAY", "Yılbaşı Resmi Tatili"),

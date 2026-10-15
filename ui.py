@@ -1,6 +1,7 @@
 """ui.py - 3 Katmanlı Modern Arayüz Düzeni (4 Ana Sekme)."""
 from __future__ import annotations
 
+from datetime import date
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QDialog, QHBoxLayout, QInputDialog,
@@ -67,10 +68,10 @@ class MainWindow(QMainWindow):
         self.subjects_view = SubjectsView(self.service)
         self.tasks_view = TasksView(self.service)
 
-        self.main_stack.addWidget(self.calendar_view)  # Index 0
-        self.main_stack.addWidget(self.roadmap_view)   # Index 1
-        self.main_stack.addWidget(self.subjects_view)  # Index 2
-        self.main_stack.addWidget(self.tasks_view)     # Index 3
+        self.main_stack.addWidget(self.calendar_view)  # Index 0: Haftalık Takvim
+        self.main_stack.addWidget(self.roadmap_view)   # Index 1: Yıllık Yol Haritası
+        self.main_stack.addWidget(self.subjects_view)  # Index 2: Dersler & Müfredat
+        self.main_stack.addWidget(self.tasks_view)     # Index 3: Görev Havuzu
 
     def _setup_layout(self) -> None:
         central = QWidget()
@@ -95,13 +96,23 @@ class MainWindow(QMainWindow):
         self.expanded_sidebar.subject_selected.connect(self.subjects_view.select_subject)
         self.expanded_sidebar.subject_add_requested.connect(self._add_subject)
         self.expanded_sidebar.task_filter_selected.connect(self.tasks_view.set_filter)
-        self.expanded_sidebar.roadmap_filter_selected.connect(self.roadmap_view.set_filter)
+        self.expanded_sidebar.roadmap_jump_requested.connect(self.roadmap_view.jump_to_week)
+
+        # Yol haritasından bir haftaya zoom yapıldığında haftalık takvime sıçra
+        self.roadmap_view.zoom_week_requested.connect(self._on_zoom_week_to_calendar)
 
         # Ders güncellendiğinde sidebar'ı ve yol haritasını tazele
         self.subjects_view.subject_changed.connect(self._on_subject_changed)
 
-        # Takvim planı değişince görevleri tazele
+        # Takvim planı değişince diğer görünümleri tazele
         self.calendar_view.plan_changed.connect(self.tasks_view.refresh)
+        self.calendar_view.plan_changed.connect(self.roadmap_view.refresh)
+
+    def _on_zoom_week_to_calendar(self, monday_date: date) -> None:
+        """Yol haritasındaki haftaya tıklandığında 7 günlük saatlik takvime geçer."""
+        self.calendar_view.week_start = monday_date
+        self.calendar_view.refresh()
+        self._on_tab_switched(0)  # Tab 0: Takvim
 
     def _on_tab_switched(self, index: int) -> None:
         self.main_stack.setCurrentIndex(index)
@@ -133,6 +144,7 @@ class MainWindow(QMainWindow):
     def _on_planning_action(self, action: str) -> None:
         if action == "replan":
             self.calendar_view.replan()
+            self.roadmap_view.refresh()
         elif action == "availability":
             self._open_dialog(AvailabilityDialog)
         elif action == "timetable":

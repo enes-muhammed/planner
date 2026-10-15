@@ -198,7 +198,7 @@ class ExpandedSidebar(QWidget):
     subject_selected = Signal(int)
     subject_add_requested = Signal()
     task_filter_selected = Signal(str)
-    roadmap_filter_selected = Signal(str)
+    roadmap_jump_requested = Signal(int)
 
     def __init__(self, service: PlannerService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -238,7 +238,7 @@ class ExpandedSidebar(QWidget):
         self.setVisible(True)
 
         if tab_index == 1:
-            # Tab 1: Yol Haritası
+            # Tab 1: Yol Haritası Çeyrek ve Tatil Hızlı Zıplama Menüsü
             self._build_roadmap_sidebar()
         elif tab_index == 2:
             # Tab 2: Dersler
@@ -248,28 +248,35 @@ class ExpandedSidebar(QWidget):
             self._build_tasks_sidebar()
 
     def _build_roadmap_sidebar(self) -> None:
-        title = QLabel("Yol Haritası")
-        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #17181C; margin-bottom: 8px;")
+        title = QLabel("Çeyrekler & Tatiller")
+        title.setStyleSheet("font-size: 15px; font-weight: 800; color: #17181C; margin-bottom: 8px;")
         self.content_area.addWidget(title)
 
-        filters = [
-            ("Tüm Yıl", "ALL", "36 H"),
-            ("1. Dönem", "TERM_1", "18 H"),
-            ("2. Dönem", "TERM_2", "18 H"),
+        # Çeyrekler ve başlangıç hafta indeksleri
+        quarter_jumps = [
+            ("1. Çeyrek (Açılış)", 1, "H.01"),
+            ("1. Ara Tatil", 10, "16 Kas"),
+            ("2. Çeyrek", 11, "H.11"),
+            ("Sömestr Tatili", 20, "25 Oca"),
+            ("3. Çeyrek", 22, "H.22"),
+            ("2. Ara Tatil + Ramazan", 26, "08 Mar"),
+            ("4. Çeyrek", 27, "H.27"),
+            ("Kurban & 19 Mayıs", 36, "17 May"),
+            ("Karne / Kapanış", 41, "25 Haz"),
         ]
 
         self.filter_buttons = []
-        for i, (label, key, count) in enumerate(filters):
-            item = SidebarItemWidget(label, count)
+        for i, (label, w_idx, badge_txt) in enumerate(quarter_jumps):
+            item = SidebarItemWidget(label, badge_txt)
             item.set_active(i == 0)
-            item.clicked.connect(lambda _, k=key, it=item: self._on_roadmap_filter_clicked(k, it))
+            item.clicked.connect(lambda _, w=w_idx, it=item: self._on_roadmap_jump_clicked(w, it))
             self.filter_buttons.append(item)
             self.content_area.addWidget(item)
 
-    def _on_roadmap_filter_clicked(self, filter_key: str, selected_item: SidebarItemWidget) -> None:
+    def _on_roadmap_jump_clicked(self, week_index: int, selected_item: SidebarItemWidget) -> None:
         for btn in self.filter_buttons:
             btn.set_active(btn is selected_item)
-        self.roadmap_filter_selected.emit(filter_key)
+        self.roadmap_jump_requested.emit(week_index)
 
     def _build_subjects_sidebar(self, active_id: int | None) -> None:
         title = QLabel("Dersler")

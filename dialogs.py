@@ -8,7 +8,7 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout,
-    QFrame, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
+    QFrame, QGroupBox, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QMessageBox, QPushButton, QScrollArea, QSlider, QSpinBox,
     QTableWidget, QTextEdit, QVBoxLayout, QWidget
 )
